@@ -1,5 +1,8 @@
 # 🗺️ QuestWorld
 
+**▶ Play it: https://jaimk8365.github.io/questworld/**
+(hosted free on GitHub Pages; works offline after first load thanks to the service worker)
+
 A behaviour & chore RPG for Thea (10), Levi (8) and the Quest Master (parent).
 Built with **F# + Fable + Elmish + Feliz (React)** — MVU architecture, compiled to
 JavaScript, served as a mobile web app that installs to the home screen like a
@@ -36,21 +39,30 @@ npm run preview    # serve the production bundle
 
 ## Putting it on the iPads / iPhone
 
-The dev server binds to the whole home network (`host: true`), so:
-
-1. Run `npm start` on the Mac (or `npm run build` + `npm run preview` for the
-   faster production bundle).
-2. Find the Mac's local IP: System Settings → Wi-Fi → Details, e.g. `192.168.1.20`.
-3. On each child's iPad and the parent's iPhone, open Safari and visit
-   `http://192.168.1.20:5173`.
-4. Tap **Share → Add to Home Screen**. QuestWorld installs with its own icon
-   and runs full-screen like a real app.
-5. Each device logs into its own profile and **stays logged in** (sessions and
+1. On each device, open Safari and visit **https://jaimk8365.github.io/questworld/**
+2. Tap **Share → Add to Home Screen**. QuestWorld installs with its own icon
+   and runs full-screen like a real app — and keeps working offline.
+3. Each device logs into its own profile and **stays logged in** (sessions and
    all progress persist in that device's local storage).
 
 Each device keeps its own save. If you later want one shared world across all
 three devices, see "Future expansions" below — the storage layer is a single
 module ready to swap for a cloud sync backend.
+
+## Updating the live game
+
+After changing any code:
+
+```bash
+cd ~/QuestWorld && ./deploy.sh
+```
+
+That single command runs the test suite, rebuilds, and publishes. The live
+site updates about a minute later; devices pick it up next time they open the
+app with internet (the service worker fetches fresh pages network-first).
+
+The dev server (`npm start`) is still there for local development, and also
+still works as a home-network fallback at `http://<mac-ip>:5173`.
 
 ## Architecture (MVU)
 
