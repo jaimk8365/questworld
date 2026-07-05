@@ -1,0 +1,21 @@
+{
+  "name": "questworld",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "dotnet fable watch src --run vite",
+    "compile": "dotnet fable src",
+    "build": "dotnet fable src && vite build",
+    "serve": "vite",
+    "preview": "vite preview",
+    "test": "dotnet run --project tests"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "vite": "^5.4.0"
+  }
+}

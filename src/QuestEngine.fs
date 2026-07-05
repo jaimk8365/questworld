@@ -1,0 +1,221 @@
+/// The reusable quest engine: period keys, completion flow, approval flow,
+/// reward granting, loot rolls and badge awards. Pure — unit tested on .NET.
+module QuestWorld.QuestEngine
+
+open System
+open QuestWorld.Domain
+open QuestWorld.Progression
+open QuestWorld.Catalog
+
+// ------------------------------------------------------------- period logic
+
+let dayKey (date: DateTime) = date.ToString("yyyy-MM-dd")
+
+/// Monday of the week containing `date`.
+let weekKey (date: DateTime) =
+    let daysSinceMonday = (int date.DayOfWeek + 6) % 7
+    dayKey (date.AddDays(float (-daysSinceMonday)))
+
+let periodKey (quest: Quest) (today: DateTime) =
+    match quest.recurrence with
+    | OnceOff -> "once"
+    | EveryDay -> dayKey today
+    | EveryWeek -> weekKey today
+
+// ------------------------------------------------------------ quest status
+
+let completionFor (data: AppData) (userId: string) (quest: Quest) (today: DateTime) =
+    let key = periodKey quest today
+    data.completions
+    |> List.tryFind (fun c -> c.questId = quest.id && c.userId = userId && c.periodKey = key)
+
+let statusFor (data: AppData) (userId: string) (quest: Quest) (today: DateTime) =
+    match completionFor data userId quest today with
+    | Some c -> c.status
+    | None -> Available
+
+/// Active quests assigned to a user, with their status for the current period.
+let questsForUser (data: AppData) (userId: string) (today: DateTime) =
+    data.quests
+    |> List.filter (fun q -> q.active && q.assignedTo |> List.contains userId)
+    |> List.map (fun q -> q, statusFor data userId q today)
+
+let pendingApprovals (data: AppData) =
+    data.completions
+    |> List.filter (fun c -> c.status = PendingApproval)
+    |> List.choose (fun c ->
+        data.quests
+        |> List.tryFind (fun q -> q.id = c.questId)
+        |> Option.map (fun q -> c, q))
+
+// ------------------------------------------------------------ badge engine
+
+let badgeCtxFor (data: AppData) (user: User) : BadgeCtx =
+    let mine = data.completions |> List.filter (fun c -> c.userId = user.id && c.status = Completed)
+    let ofType t =
+        mine
+        |> List.filter (fun c ->
+            data.quests
+            |> List.exists (fun q -> q.id = c.questId && q.questType = t))
+        |> List.length
+    { level = levelForXp user.xp
+      totalCompleted = List.length mine
+      choreCompleted = ofType Chore
+      behaviourCompleted = ofType Behaviour
+      cosmeticsOwned = List.length user.inventory.owned }
+
+let newlyEarnedBadges (data: AppData) (user: User) : string list =
+    let ctx = badgeCtxFor data user
+    badgeDefs
+    |> List.filter (fun b -> b.earned ctx && not (user.badges |> List.contains b.id))
+    |> List.map (fun b -> b.id)
+
+// -------------------------------------------------------------- loot boxes
+
+/// 25% chance of a loot box per completed quest.
+/// Box contents: 60% coins, 25% XP boost, 15% cosmetic (falls back to coins).
+let rollLoot (rng: Random) (user: User) : LootResult option =
+    if rng.Next(100) >= 25 then None
+    else
+        let roll = rng.Next(100)
+        if roll < 60 then Some (CoinDrop (5 + rng.Next(16)))
+        elif roll < 85 then Some (XpBoost (10 + rng.Next(21)))
+        else
+            let unowned =
+                cosmeticsForTheme user.theme
+                |> List.filter (fun c -> not (user.inventory.owned |> List.contains c.id))
+            match unowned with
+            | [] -> Some (CoinDrop 25)
+            | xs -> Some (CosmeticDrop (xs |> List.item (rng.Next(List.length xs))).id)
+
+// -------------------------------------------------------- reward + complete
+
+let private replaceUser (data: AppData) (user: User) =
+    { data with users = data.users |> List.map (fun u -> if u.id = user.id then user else u) }
+
+let private applyLoot (user: User) (loot: LootResult option) =
+    match loot with
+    | None -> user
+    | Some (CoinDrop c) -> { user with coins = user.coins + c }
+    | Some (XpBoost x) -> { user with xp = user.xp + x }
+    | Some (CosmeticDrop id) ->
+        { user with inventory = { user.inventory with owned = id :: user.inventory.owned } }
+
+/// Grants a quest's rewards to a user, rolls loot and awards badges.
+let private grantRewards (data: AppData) (userId: string) (quest: Quest) (rng: Random) : AppData * CompletionOutcome =
+    let user = data.users |> List.find (fun u -> u.id = userId)
+    let levelBefore = levelForXp user.xp
+    let loot = rollLoot rng user
+    let rewarded =
+        { user with xp = user.xp + quest.reward.xp; coins = user.coins + quest.reward.coins }
+        |> fun u -> applyLoot u loot
+    let dataAfterReward = replaceUser data rewarded
+    let newBadges = newlyEarnedBadges dataAfterReward rewarded
+    let final = { rewarded with badges = rewarded.badges @ newBadges }
+    let outcome =
+        { quest = quest
+          reward = quest.reward
+          loot = loot
+          levelBefore = levelBefore
+          levelAfter = levelForXp final.xp
+          newBadges = newBadges
+          pendingApproval = false }
+    replaceUser data final, outcome
+
+/// Child taps "Done!". Auto-approve quests grant instantly;
+/// approval quests go to PendingApproval (rewards on parent approval).
+let markDone (data: AppData) (userId: string) (questId: string) (today: DateTime) (rng: Random) : AppData * CompletionOutcome option =
+    match data.quests |> List.tryFind (fun q -> q.id = questId) with
+    | None -> data, None
+    | Some quest when not (quest.assignedTo |> List.contains userId) -> data, None
+    | Some quest ->
+        match statusFor data userId quest today with
+        | PendingApproval | Completed -> data, None // already claimed this period
+        | Available ->
+            let key = periodKey quest today
+            let completion status =
+                { questId = quest.id; userId = userId; periodKey = key
+                  status = status; completedAt = today.ToString("yyyy-MM-dd HH:mm") }
+            if quest.requiresApproval then
+                let data' = { data with completions = completion PendingApproval :: data.completions }
+                data', Some { quest = quest; reward = quest.reward; loot = None
+                              levelBefore = 0; levelAfter = 0; newBadges = []
+                              pendingApproval = true }
+            else
+                let withCompletion = { data with completions = completion Completed :: data.completions }
+                let data', outcome = grantRewards withCompletion userId quest rng
+                data', Some outcome
+
+/// Parent approves a pending completion — rewards are granted now.
+let approve (data: AppData) (completion: QuestCompletion) (rng: Random) : AppData * CompletionOutcome option =
+    match data.quests |> List.tryFind (fun q -> q.id = completion.questId) with
+    | None -> data, None
+    | Some quest ->
+        let stillPending =
+            data.completions
+            |> List.exists (fun c ->
+                c.questId = completion.questId && c.userId = completion.userId
+                && c.periodKey = completion.periodKey && c.status = PendingApproval)
+        if not stillPending then data, None
+        else
+            let updated =
+                data.completions
+                |> List.map (fun c ->
+                    if c.questId = completion.questId && c.userId = completion.userId && c.periodKey = completion.periodKey
+                    then { c with status = Completed }
+                    else c)
+            let data', outcome = grantRewards { data with completions = updated } completion.userId quest rng
+            data', Some outcome
+
+/// Parent rejects — the quest becomes Available again for that period.
+let reject (data: AppData) (completion: QuestCompletion) : AppData =
+    { data with
+        completions =
+            data.completions
+            |> List.filter (fun c ->
+                not (c.questId = completion.questId && c.userId = completion.userId
+                     && c.periodKey = completion.periodKey && c.status = PendingApproval)) }
+
+// -------------------------------------------------------------------- shop
+
+let buyCosmetic (data: AppData) (userId: string) (cosmeticId: string) : Result<AppData, string> =
+    match data.users |> List.tryFind (fun u -> u.id = userId), cosmeticById cosmeticId with
+    | None, _ -> Error "User not found."
+    | _, None -> Error "Item not found."
+    | Some user, Some cosmetic ->
+        if user.inventory.owned |> List.contains cosmeticId then Error "Already owned!"
+        elif user.coins < cosmetic.price then Error "Not enough coins yet — keep questing!"
+        else
+            let user' =
+                { user with
+                    coins = user.coins - cosmetic.price
+                    inventory = { user.inventory with owned = cosmeticId :: user.inventory.owned } }
+            // Buying can unlock the Collector badge.
+            let data' = replaceUser data user'
+            let newBadges = newlyEarnedBadges data' user'
+            Ok (replaceUser data' { user' with badges = user'.badges @ newBadges })
+
+let toggleEquip (data: AppData) (userId: string) (cosmeticId: string) : AppData =
+    match data.users |> List.tryFind (fun u -> u.id = userId) with
+    | None -> data
+    | Some user when not (user.inventory.owned |> List.contains cosmeticId) -> data
+    | Some user ->
+        let inv = user.inventory
+        let equipped =
+            if inv.equipped |> List.contains cosmeticId
+            then inv.equipped |> List.filter ((<>) cosmeticId)
+            else cosmeticId :: inv.equipped
+        replaceUser data { user with inventory = { inv with equipped = equipped } }
+
+// ----------------------------------------------------------- quest admin
+
+let addQuest (data: AppData) (quest: Quest) : AppData =
+    { data with quests = data.quests @ [ quest ] }
+
+let setQuestActive (data: AppData) (questId: string) (active: bool) : AppData =
+    { data with quests = data.quests |> List.map (fun q -> if q.id = questId then { q with active = active } else q) }
+
+let deleteQuest (data: AppData) (questId: string) : AppData =
+    { data with
+        quests = data.quests |> List.filter (fun q -> q.id <> questId)
+        completions = data.completions |> List.filter (fun c -> c.questId <> questId) }

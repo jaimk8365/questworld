@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>QuestWorld</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Domain.fs" />
+    <Compile Include="Progression.fs" />
+    <Compile Include="Auth.fs" />
+    <Compile Include="Catalog.fs" />
+    <Compile Include="QuestEngine.fs" />
+    <Compile Include="Codec.fs" />
+    <Compile Include="Storage.fs" />
+    <Compile Include="Sounds.fs" />
+    <Compile Include="State.fs" />
+    <Compile Include="ViewShared.fs" />
+    <Compile Include="ViewLogin.fs" />
+    <Compile Include="ViewChild.fs" />
+    <Compile Include="ViewAdult.fs" />
+    <Compile Include="Main.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Fable.Elmish.React" Version="4.0.0" />
+    <PackageReference Include="Feliz" Version="2.7.0" />
+    <PackageReference Include="Thoth.Json" Version="10.2.0" />
+    <PackageReference Include="Fable.Browser.Dom" Version="2.16.0" />
+  </ItemGroup>
+</Project>

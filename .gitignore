@@ -1,0 +1,10 @@
+node_modules/
+dist/
+obj/
+bin/
+.fable/
+fable_modules/
+src/**/*.fs.js
+src/*.fs.js
+*.fable-temp.csproj
+.DS_Store
