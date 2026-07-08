@@ -283,20 +283,125 @@ let main _ =
             check "token spent on start" ((arcadeOf (d2.users |> List.find (fun u -> u.id = "u-levi"))).tokens = 0)
             check "cannot start without a token" ((spendArcadeToken d2 "u-levi").IsNone)
             // finish a run: score 7, 3 stars, first ever → new best + badge
-            let d3, result = finishArcadeRun d2 "u-levi" 7 3
+            let d3, result = finishArcadeRun d2 "u-levi" 7 3 monday
             let levi3 = d3.users |> List.find (fun u -> u.id = "u-levi")
             check "run payout = stars + new-best bonus" (result.coinsEarned = 3 + Arcade.newBestBonus && result.newBest)
             check "best score and run count recorded" ((arcadeOf levi3).bestScore = 7 && (arcadeOf levi3).totalRuns = 1)
             check "'Game On' badge awarded on first run" (levi3.badges |> List.contains "b-arcade")
+            check "run recorded on this week's scoreboard"
+                (weeklyScores d3 "flight" monday |> List.exists (fun s -> s.userId = "u-levi" && s.score = 7))
             // second, worse run: no bonus, no new best
-            let d4, result2 = finishArcadeRun d3 "u-levi" 4 2
+            let d4, result2 = finishArcadeRun d3 "u-levi" 4 2 monday
             let levi4 = d4.users |> List.find (fun u -> u.id = "u-levi")
             check "worse run pays stars only" (result2.coinsEarned = 2 && not result2.newBest)
             check "best score keeps the higher value" ((arcadeOf levi4).bestScore = 7)
+            check "scoreboard keeps the weekly best, not the latest"
+                ((weeklyScores d4 "flight" monday |> List.find (fun s -> s.userId = "u-levi")).score = 7)
             // 20+ run unlocks Ace Pilot
-            let d5, _ = finishArcadeRun d4 "u-levi" 21 0
+            let d5, _ = finishArcadeRun d4 "u-levi" 21 0 monday
             check "'Ace Pilot' badge at score 20+"
                 ((d5.users |> List.find (fun u -> u.id = "u-levi")).badges |> List.contains "b-ace")
+            // scores land in the right week's bucket
+            let d6, _ = finishArcadeRun d5 "u-levi" 30 0 nextMonday
+            check "a new week gets its own scoreboard entry"
+                ((weeklyScores d6 "flight" nextMonday |> List.find (fun s -> s.userId = "u-levi")).score = 30
+                 && (weeklyScores d6 "flight" monday |> List.find (fun s -> s.userId = "u-levi")).score = 21)
+
+    section "Memory engine"
+    let mrng = Random(5)
+    let faces = memoryFaces DragonDream
+    let mg = Memory.newGame mrng faces
+    check "deck has 16 cards" (List.length mg.cards = 16)
+    check "deck holds exactly 8 pairs"
+        (mg.cards |> List.countBy (fun c -> c.face) |> List.forall (fun (_, n) -> n = 2)
+         && (mg.cards |> List.map (fun c -> c.face) |> List.distinct |> List.length) = 8)
+    check "all cards start face-down" (mg.cards |> List.forall (fun c -> c.state = Memory.FaceDown))
+    let mg1 = Memory.flip 0 mg
+    check "first flip turns a card up" ((mg1.cards |> List.item 0).state = Memory.FaceUp && mg1.flips = 1)
+    check "re-flipping the same card is a no-op" (Memory.flip 0 mg1 = mg1)
+    // find the partner of card 0 and a non-partner
+    let face0 = (mg.cards |> List.item 0).face
+    let partner = mg.cards |> List.indexed |> List.find (fun (i, c) -> i <> 0 && c.face = face0) |> fst
+    let stranger = mg.cards |> List.indexed |> List.find (fun (_, c) -> c.face <> face0) |> fst
+    let matched = Memory.flip partner mg1
+    check "matching pair locks in as Matched"
+        ((matched.cards |> List.item 0).state = Memory.Matched
+         && (matched.cards |> List.item partner).state = Memory.Matched
+         && matched.mismatches = 0)
+    let mismatched = Memory.flip stranger mg1
+    check "mismatch counts and stays visible" (mismatched.mismatches = 1 && mismatched.locked.IsSome)
+    let resolved = Memory.resolve mismatched
+    check "resolve flips the mismatch back down"
+        ((resolved.cards |> List.item 0).state = Memory.FaceDown
+         && (resolved.cards |> List.item stranger).state = Memory.FaceDown)
+    check "next tap auto-resolves a showing mismatch"
+        ((Memory.flip partner mismatched).cards |> List.item stranger |> fun c -> c.state = Memory.FaceDown)
+    // play a perfect game: flip both cards of each face in order
+    let perfect =
+        faces
+        |> List.fold
+            (fun (g: Memory.Game) face ->
+                let idxs = g.cards |> List.indexed |> List.filter (fun (_, c) -> c.face = face) |> List.map fst
+                idxs |> List.fold (fun g i -> Memory.flip i g) g)
+            mg
+    check "perfect game finishes" (perfect.phase = Memory.Done)
+    check "perfect game scores 20 and pays 8" (Memory.score perfect = 20 && Memory.coinsFor perfect = 8)
+    check "score floors at 5, coins at 1"
+        (Memory.score { perfect with mismatches = 30 } = 5 && Memory.coinsFor { perfect with mismatches = 30 } = 1)
+
+    section "Memory run settlement"
+    let memUser =
+        seedUsers |> List.map (fun u -> if u.id = "u-thea" then { u with xp = 200; coins = 0 } else u)
+    let memData = { seedData with users = memUser }
+    let memDone = { perfect with mismatches = 2 } // score 18, coins 6
+    let md, mres = finishMemoryRun memData "u-thea" memDone monday
+    let mthea = md.users |> List.find (fun u -> u.id = "u-thea")
+    check "memory payout matches mistakes" (mres.coinsEarned = 6 && mthea.coins = 6)
+    check "first memory game is a new best" mres.newBest
+    check "memory score on the weekly board"
+        ((weeklyScores md "memory" monday |> List.find (fun s -> s.userId = "u-thea")).score = 18)
+    check "lifetime memory best tracked" (lifetimeBest md "u-thea" "memory" = 18)
+    let _, mres2 = finishMemoryRun md "u-thea" { perfect with mismatches = 10 } monday
+    check "worse memory game is not a new best" (not mres2.newBest)
+
+    section "Prize shop"
+    let prizeKid =
+        seedUsers |> List.map (fun u -> if u.id = "u-thea" then { u with coins = 100 } else u)
+    let pData = { seedData with users = prizeKid }
+    check "seed prizes exist and are active" (activePrizes pData |> List.length = 3)
+    check "redeeming while broke fails"
+        (match redeemPrize pData "u-levi" "p-screen" monday with Error _ -> true | Ok _ -> false)
+    (match redeemPrize pData "u-thea" "p-screen" monday with
+     | Error e -> check (sprintf "redeem failed: %s" e) false
+     | Ok (pd, prize) ->
+         let thea = pd.users |> List.find (fun u -> u.id = "u-thea")
+         check "redeem deducts the prize cost" (thea.coins = 100 - prize.cost)
+         check "redemption is pending for the parent"
+             (pendingRedemptions pd |> List.exists (fun (r, p, u) -> p.id = "p-screen" && u.id = "u-thea" && not r.fulfilled))
+         let redemption = pendingRedemptions pd |> List.head |> fun (r, _, _) -> r
+         let fulfilled = fulfillRedemption pd redemption.id
+         check "fulfil clears the pending queue" (pendingRedemptions fulfilled |> List.isEmpty)
+         check "fulfil keeps the coins spent"
+             ((fulfilled.users |> List.find (fun u -> u.id = "u-thea")).coins = 100 - prize.cost)
+         let refunded = refundRedemption pd redemption.id
+         check "refund returns the coins"
+             ((refunded.users |> List.find (fun u -> u.id = "u-thea")).coins = 100)
+         check "refund clears the pending queue" (pendingRedemptions refunded |> List.isEmpty)
+         check "refunding a fulfilled redemption does nothing" (refundRedemption fulfilled redemption.id = fulfilled))
+    // paused prizes can't be bought; deletion refunds pending redemptions
+    let paused = setPrizeActive pData "p-dinner" false
+    check "paused prize can't be redeemed"
+        (match redeemPrize paused "u-thea" "p-dinner" monday with Error _ -> true | Ok _ -> false)
+    (match redeemPrize pData "u-thea" "p-latebed" monday with
+     | Ok (pd2, _) ->
+         let deleted = deletePrize pd2 "p-latebed"
+         check "deleting a prize refunds pending buyers"
+             ((deleted.users |> List.find (fun u -> u.id = "u-thea")).coins = 100)
+         check "deleted prize is gone" (prizesOf deleted |> List.forall (fun p -> p.id <> "p-latebed"))
+     | Error e -> check (sprintf "latebed redeem failed: %s" e) false)
+    // custom prize creation
+    let custom = { id = "p-custom"; title = "Ice cream trip"; icon = "🍦"; cost = 80; active = true }
+    check "parent can add a prize" (activePrizes (addPrize pData custom) |> List.exists (fun p -> p.id = "p-custom"))
 
     section "Save migration (v1 → arcade)"
     // A v1 save has no "arcade" field on users — it must still decode.

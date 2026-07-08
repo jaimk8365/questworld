@@ -103,6 +103,38 @@ let private questsTab (model: Model) (user: User) dispatch =
         ]
     ]
 
+let private prizeSection (model: Model) (user: User) dispatch =
+    let prizes = activePrizes model.data
+    if List.isEmpty prizes then Html.none
+    else
+        Html.div [
+            prop.children [
+                Html.h3 [ prop.className "section-title"; prop.text "🎁 Real Prizes" ]
+                Html.p [ prop.className "prize-note"; prop.text "Spend your coins on real-life rewards — the Quest Master hands them over!" ]
+                Html.div [
+                    prop.children [
+                        for prize in prizes do
+                            Html.div [
+                                prop.className "prize-row"
+                                prop.children [
+                                    Html.span [ prop.className "prize-icon"; prop.text prize.icon ]
+                                    Html.div [
+                                        prop.className "prize-info"
+                                        prop.children [ Html.div [ prop.className "prize-title"; prop.text prize.title ] ]
+                                    ]
+                                    Html.button [
+                                        prop.className "btn btn-small btn-buy"
+                                        prop.disabled (user.coins < prize.cost)
+                                        prop.text (sprintf "%d 🪙" prize.cost)
+                                        prop.onClick (fun _ -> dispatch (RedeemPrize prize.id))
+                                    ]
+                                ]
+                            ]
+                    ]
+                ]
+            ]
+        ]
+
 let private shopTab (model: Model) (user: User) dispatch =
     let items = cosmeticsForTheme user.theme
     Html.div [
@@ -141,6 +173,7 @@ let private shopTab (model: Model) (user: User) dispatch =
                         ]
                 ]
             ]
+            prizeSection model user dispatch
         ]
     ]
 

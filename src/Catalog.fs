@@ -26,6 +26,12 @@ let cosmeticById (id: string) = cosmetics |> List.tryFind (fun c -> c.id = id)
 
 let cosmeticsForTheme (theme: ProfileTheme) = cosmetics |> List.filter (fun c -> c.theme = theme)
 
+/// Card faces for the memory mini-game, per theme.
+let memoryFaces (theme: ProfileTheme) : string list =
+    match theme with
+    | DragonDream -> [ "🐲"; "🦄"; "🌈"; "⭐"; "👑"; "💖"; "🌸"; "🧚" ]
+    | _ -> [ "💎"; "⛏️"; "🧨"; "🐷"; "🗡️"; "🔥"; "🌋"; "🟩" ]
+
 // ------------------------------------------------------------------- badges
 
 type BadgeCtx =
@@ -112,9 +118,20 @@ let seedQuests : Quest list =
       // Bonus
       q "q-surprise" "Surprise mission!"      "Ask the Quest Master for today's secret mission…" "🎁" Bonus 50 20 bothKids OnceOff true ]
 
+// -------------------------------------------------------------- seed prizes
+
+/// Example real-world prizes — the parent edits these in the Prizes tab.
+let seedPrizes : Prize list =
+    [ { id = "p-screen";  title = "30 mins extra screen time"; icon = "📺"; cost = 40; active = true }
+      { id = "p-dinner";  title = "Choose Friday dinner";      icon = "🍕"; cost = 60; active = true }
+      { id = "p-latebed"; title = "Stay up 30 mins later";     icon = "🌙"; cost = 50; active = true } ]
+
 let seedData : AppData =
     { schemaVersion = 1
       users = seedUsers
       quests = seedQuests
       completions = []
-      settings = { soundOn = true } }
+      settings = { soundOn = true }
+      arcadeScores = Some []
+      prizes = Some seedPrizes
+      redemptions = Some [] }

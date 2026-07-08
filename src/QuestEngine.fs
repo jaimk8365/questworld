@@ -247,9 +247,41 @@ type ArcadeRunResult =
       newBest: bool
       newBadges: string list }
 
-/// Settles a finished run: stars become coins, a new best score pays a
+// -- weekly scoreboard --------------------------------------------------
+
+let arcadeScoresOf (data: AppData) = data.arcadeScores |> Option.defaultValue []
+
+/// Keeps the best score per (user, game, week).
+let recordArcadeScore (data: AppData) (userId: string) (game: string) (score: int) (today: DateTime) : AppData =
+    let wk = weekKey today
+    let scores = arcadeScoresOf data
+    let scores' =
+        match scores |> List.tryFind (fun s -> s.userId = userId && s.game = game && s.weekKey = wk) with
+        | Some existing when existing.score >= score -> scores
+        | Some _ ->
+            scores
+            |> List.map (fun s ->
+                if s.userId = userId && s.game = game && s.weekKey = wk then { s with score = score } else s)
+        | None -> { userId = userId; game = game; score = score; weekKey = wk } :: scores
+    { data with arcadeScores = Some scores' }
+
+/// This week's scores for a game, best first.
+let weeklyScores (data: AppData) (game: string) (today: DateTime) : ArcadeScore list =
+    arcadeScoresOf data
+    |> List.filter (fun s -> s.game = game && s.weekKey = weekKey today)
+    |> List.sortByDescending (fun s -> s.score)
+
+/// Lifetime best for a game, from the weekly records.
+let lifetimeBest (data: AppData) (userId: string) (game: string) : int =
+    arcadeScoresOf data
+    |> List.filter (fun s -> s.userId = userId && s.game = game)
+    |> List.fold (fun best s -> max best s.score) 0
+
+// -- run settlement ------------------------------------------------------
+
+/// Settles a finished flight: stars become coins, a new best score pays a
 /// bonus, records update, badges may unlock.
-let finishArcadeRun (data: AppData) (userId: string) (score: int) (starsCollected: int) : AppData * ArcadeRunResult =
+let finishArcadeRun (data: AppData) (userId: string) (score: int) (starsCollected: int) (today: DateTime) : AppData * ArcadeRunResult =
     match data.users |> List.tryFind (fun u -> u.id = userId) with
     | None -> data, { coinsEarned = 0; newBest = false; newBadges = [] }
     | Some user ->
@@ -263,10 +295,104 @@ let finishArcadeRun (data: AppData) (userId: string) (score: int) (starsCollecte
                     Some { tokens = arcade.tokens
                            bestScore = max arcade.bestScore score
                            totalRuns = arcade.totalRuns + 1 } }
-        let data' = replaceUser data updated
+        let data' = recordArcadeScore (replaceUser data updated) userId "flight" score today
         let newBadges = newlyEarnedBadges data' updated
         let final = { updated with badges = updated.badges @ newBadges }
         replaceUser data' final, { coinsEarned = coinsEarned; newBest = newBest; newBadges = newBadges }
+
+/// Settles a finished memory game: fewer mistakes = more coins.
+let finishMemoryRun (data: AppData) (userId: string) (game: Memory.Game) (today: DateTime) : AppData * ArcadeRunResult =
+    match data.users |> List.tryFind (fun u -> u.id = userId) with
+    | None -> data, { coinsEarned = 0; newBest = false; newBadges = [] }
+    | Some user ->
+        let score = Memory.score game
+        let coinsEarned = Memory.coinsFor game
+        let newBest = score > lifetimeBest data userId "memory"
+        let arcade = arcadeOf user
+        let updated =
+            { user with
+                coins = user.coins + coinsEarned
+                arcade = Some { arcade with totalRuns = arcade.totalRuns + 1 } }
+        let data' = recordArcadeScore (replaceUser data updated) userId "memory" score today
+        let newBadges = newlyEarnedBadges data' updated
+        let final = { updated with badges = updated.badges @ newBadges }
+        replaceUser data' final, { coinsEarned = coinsEarned; newBest = newBest; newBadges = newBadges }
+
+// ------------------------------------------------------------- prize shop
+
+let prizesOf (data: AppData) = data.prizes |> Option.defaultValue []
+let redemptionsOf (data: AppData) = data.redemptions |> Option.defaultValue []
+
+let activePrizes (data: AppData) = prizesOf data |> List.filter (fun p -> p.active)
+
+let addPrize (data: AppData) (prize: Prize) : AppData =
+    { data with prizes = Some (prizesOf data @ [ prize ]) }
+
+let setPrizeActive (data: AppData) (prizeId: string) (active: bool) : AppData =
+    { data with
+        prizes = Some (prizesOf data |> List.map (fun p -> if p.id = prizeId then { p with active = active } else p)) }
+
+/// A child spends coins on a prize. Coins leave immediately; the parent
+/// gets a "hand it over" item in Approvals.
+let redeemPrize (data: AppData) (userId: string) (prizeId: string) (now: DateTime) : Result<AppData * Prize, string> =
+    match data.users |> List.tryFind (fun u -> u.id = userId),
+          prizesOf data |> List.tryFind (fun p -> p.id = prizeId) with
+    | None, _ -> Error "User not found."
+    | _, None -> Error "That prize is gone!"
+    | _, Some prize when not prize.active -> Error "That prize isn't available right now."
+    | Some user, Some prize when user.coins < prize.cost -> Error "Not enough coins yet — keep questing!"
+    | Some user, Some prize ->
+        let redemption =
+            { id = "r-" + string now.Ticks
+              prizeId = prize.id
+              userId = userId
+              redeemedAt = now.ToString("yyyy-MM-dd HH:mm")
+              fulfilled = false }
+        let data' =
+            { replaceUser data { user with coins = user.coins - prize.cost } with
+                redemptions = Some (redemption :: redemptionsOf data) }
+        Ok (data', prize)
+
+let pendingRedemptions (data: AppData) : (Redemption * Prize * User) list =
+    redemptionsOf data
+    |> List.filter (fun r -> not r.fulfilled)
+    |> List.choose (fun r ->
+        match prizesOf data |> List.tryFind (fun p -> p.id = r.prizeId),
+              data.users |> List.tryFind (fun u -> u.id = r.userId) with
+        | Some p, Some u -> Some (r, p, u)
+        | _ -> None)
+
+let fulfillRedemption (data: AppData) (redemptionId: string) : AppData =
+    { data with
+        redemptions =
+            Some (redemptionsOf data
+                  |> List.map (fun r -> if r.id = redemptionId then { r with fulfilled = true } else r)) }
+
+/// Parent cancels a pending redemption — coins go back to the child.
+let refundRedemption (data: AppData) (redemptionId: string) : AppData =
+    match redemptionsOf data |> List.tryFind (fun r -> r.id = redemptionId && not r.fulfilled) with
+    | None -> data
+    | Some r ->
+        let refund =
+            prizesOf data
+            |> List.tryFind (fun p -> p.id = r.prizeId)
+            |> Option.map (fun p -> p.cost)
+            |> Option.defaultValue 0
+        let data' =
+            match data.users |> List.tryFind (fun u -> u.id = r.userId) with
+            | Some user -> replaceUser data { user with coins = user.coins + refund }
+            | None -> data
+        { data' with redemptions = Some (redemptionsOf data |> List.filter (fun x -> x.id <> redemptionId)) }
+
+/// Deleting a prize refunds any pending redemptions of it first.
+let deletePrize (data: AppData) (prizeId: string) : AppData =
+    let data' =
+        redemptionsOf data
+        |> List.filter (fun r -> r.prizeId = prizeId && not r.fulfilled)
+        |> List.fold (fun d r -> refundRedemption d r.id) data
+    { data' with
+        prizes = Some (prizesOf data' |> List.filter (fun p -> p.id <> prizeId))
+        redemptions = Some (redemptionsOf data' |> List.filter (fun r -> r.prizeId <> prizeId)) }
 
 // ----------------------------------------------------------- quest admin
 

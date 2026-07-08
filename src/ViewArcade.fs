@@ -12,6 +12,11 @@ let private gameName (theme: ProfileTheme) =
     | DragonDream -> "🌸 Sky Dance"
     | _ -> "⛏️ Cave Flight"
 
+let private memoryName (theme: ProfileTheme) =
+    match theme with
+    | DragonDream -> "🃏 Dragon Pairs"
+    | _ -> "🃏 Miner's Match"
+
 let private collectible (theme: ProfileTheme) =
     match theme with
     | DragonDream -> "⭐"
@@ -110,47 +115,127 @@ let private gameField (model: Model) (user: User) (game: Arcade.Game) dispatch =
         ]
     ]
 
-/// Booth screen: buy tokens, start a flight, see records.
+/// The memory-match playfield.
+let private memoryField (model: Model) (user: User) (game: Memory.Game) dispatch =
+    Html.div [
+        prop.className "memory-wrap"
+        prop.children [
+            Html.h3 [ prop.className "section-title"; prop.text (memoryName user.theme) ]
+            Html.div [ prop.className "memory-hud"
+                       prop.text (sprintf "Flips: %d · Oops: %d" game.flips game.mismatches) ]
+            Html.div [
+                prop.className "memory-grid"
+                prop.children [
+                    for i, card in List.indexed game.cards do
+                        Html.button [
+                            prop.className (
+                                match card.state with
+                                | Memory.FaceDown -> "mem-card"
+                                | Memory.FaceUp -> "mem-card mem-up"
+                                | Memory.Matched -> "mem-card mem-matched")
+                            prop.text (match card.state with Memory.FaceDown -> "❔" | _ -> card.face)
+                            prop.onClick (fun _ -> dispatch (MemoryFlip i))
+                        ]
+                ]
+            ]
+            if game.phase = Memory.Done then
+                let arcade = arcadeOf user
+                Html.div [
+                    prop.className "arcade-over-inline pop-in"
+                    prop.children [
+                        Html.h3 [ prop.text (if (model.arcadeResult |> Option.map (fun r -> r.newBest) |> Option.defaultValue false)
+                                             then "🏆 NEW BEST!" else "All pairs found!") ]
+                        Html.div [ prop.className "arcade-over-score"; prop.text (sprintf "Score: %d" (Memory.score game)) ]
+                        match model.arcadeResult with
+                        | Some r when r.coinsEarned > 0 ->
+                            Html.div [ prop.className "arcade-over-coins"; prop.text (sprintf "+%d 🪙 earned!" r.coinsEarned) ]
+                        | _ -> Html.none
+                        Html.div [
+                            prop.className "pw-buttons"
+                            prop.children [
+                                Html.button [
+                                    prop.className "btn btn-ghost"
+                                    prop.text "Back"
+                                    prop.onClick (fun _ -> dispatch MemoryExit)
+                                ]
+                                Html.button [
+                                    prop.className "btn btn-primary"
+                                    prop.disabled (arcade.tokens < 1)
+                                    prop.text "Play again (1 🎟️)"
+                                    prop.onClick (fun _ -> dispatch MemoryStart)
+                                ]
+                            ]
+                        ]
+                    ]
+                ]
+        ]
+    ]
+
+/// Booth screen: buy tokens, pick a game, see records.
 let private booth (model: Model) (user: User) dispatch =
     let arcade = arcadeOf user
+    let memBest = lifetimeBest model.data user.id "memory"
     Html.div [
         prop.className "arcade-booth"
         prop.children [
-            Html.h3 [ prop.className "section-title"; prop.text (gameName user.theme) ]
-            Html.p [ prop.className "arcade-blurb"
-                     prop.text (match user.theme with
-                                | DragonDream -> "Fly your dragon through the clouds and catch falling stars!"
-                                | _ -> "Fly through the cave pillars and grab the diamonds!") ]
+            Html.h3 [ prop.className "section-title"; prop.text "🎮 The Arcade" ]
             Html.div [
                 prop.className "arcade-stats"
                 prop.children [
                     Html.div [ prop.className "kid-stat"; prop.text (sprintf "🎟️ %d tokens" arcade.tokens) ]
-                    Html.div [ prop.className "kid-stat"; prop.text (sprintf "🏆 best %d" arcade.bestScore) ]
-                    Html.div [ prop.className "kid-stat"; prop.text (sprintf "🛫 %d flights" arcade.totalRuns) ]
+                    Html.div [ prop.className "kid-stat"; prop.text (sprintf "🛫 %d games played" arcade.totalRuns) ]
                 ]
             ]
             match model.arcadeMessage with
             | Some m -> Html.div [ prop.className "shop-message"; prop.text m ]
             | None -> Html.none
+            Html.button [
+                prop.className "btn"
+                prop.disabled (user.coins < Arcade.tokenCost)
+                prop.text (sprintf "Buy token · %d 🪙" Arcade.tokenCost)
+                prop.onClick (fun _ -> dispatch BuyArcadeToken)
+            ]
             Html.div [
-                prop.className "pw-buttons"
+                prop.className "game-grid"
                 prop.children [
-                    Html.button [
-                        prop.className "btn"
-                        prop.disabled (user.coins < Arcade.tokenCost)
-                        prop.text (sprintf "Buy token · %d 🪙" Arcade.tokenCost)
-                        prop.onClick (fun _ -> dispatch BuyArcadeToken)
+                    Html.div [
+                        prop.className "game-card"
+                        prop.children [
+                            Html.div [ prop.className "game-card-icon"; prop.text "🛫" ]
+                            Html.div [ prop.className "game-card-name"; prop.text (gameName user.theme) ]
+                            Html.p [ prop.className "game-card-blurb"
+                                     prop.text (match user.theme with
+                                                | DragonDream -> "Tap to fly through the clouds — catch stars!"
+                                                | _ -> "Tap to fly through the pillars — grab diamonds!") ]
+                            Html.div [ prop.className "game-card-best"; prop.text (sprintf "Best: %d" arcade.bestScore) ]
+                            Html.button [
+                                prop.className "btn btn-primary btn-small"
+                                prop.disabled (arcade.tokens < 1)
+                                prop.text "Play (1 🎟️)"
+                                prop.onClick (fun _ -> dispatch ArcadeStart)
+                            ]
+                        ]
                     ]
-                    Html.button [
-                        prop.className "btn btn-primary"
-                        prop.disabled (arcade.tokens < 1)
-                        prop.text "Start flight! 🛫"
-                        prop.onClick (fun _ -> dispatch ArcadeStart)
+                    Html.div [
+                        prop.className "game-card"
+                        prop.children [
+                            Html.div [ prop.className "game-card-icon"; prop.text "🃏" ]
+                            Html.div [ prop.className "game-card-name"; prop.text (memoryName user.theme) ]
+                            Html.p [ prop.className "game-card-blurb"
+                                     prop.text "Find all 8 pairs — fewer mistakes, more coins!" ]
+                            Html.div [ prop.className "game-card-best"; prop.text (sprintf "Best: %d" memBest) ]
+                            Html.button [
+                                prop.className "btn btn-primary btn-small"
+                                prop.disabled (arcade.tokens < 1)
+                                prop.text "Play (1 🎟️)"
+                                prop.onClick (fun _ -> dispatch MemoryStart)
+                            ]
+                        ]
                     ]
                 ]
             ]
             Html.p [ prop.className "arcade-payout"
-                     prop.text (sprintf "Every %s you catch = 1 🪙 back. Beat your best score for +%d 🪙!"
+                     prop.text (sprintf "Catching %s pays coins back — and beating your best score earns +%d 🪙!"
                                         (collectible user.theme) Arcade.newBestBonus) ]
         ]
     ]
@@ -170,6 +255,7 @@ let private lockedView (user: User) =
 let view (model: Model) (user: User) dispatch =
     if not (arcadeUnlockedFor user) then lockedView user
     else
-        match model.arcadeGame with
-        | Some game -> gameField model user game dispatch
-        | None -> booth model user dispatch
+        match model.arcadeGame, model.memoryGame with
+        | Some game, _ -> gameField model user game dispatch
+        | _, Some game -> memoryField model user game dispatch
+        | None, None -> booth model user dispatch

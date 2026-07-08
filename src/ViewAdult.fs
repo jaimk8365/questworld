@@ -46,6 +46,45 @@ let private kidCard (model: Model) (kid: User) =
         ]
     ]
 
+/// This week's family arcade scoreboard.
+let private scoreboard (model: Model) =
+    let games = [ "flight", "🛫 Flight"; "memory", "🃏 Memory" ]
+    Html.div [
+        prop.children [
+            Html.h3 [ prop.className "admin-title"; prop.text "🏆 This week's Arcade scoreboard" ]
+            Html.div [
+                prop.className "kid-grid"
+                prop.children [
+                    for gameId, label in games do
+                        let scores = weeklyScores model.data gameId DateTime.Now
+                        Html.div [
+                            prop.className "kid-card"
+                            prop.children [
+                                Html.div [ prop.className "kid-name"; prop.text label ]
+                                if List.isEmpty scores then
+                                    Html.p [ prop.className "empty-note"; prop.text "No games played yet this week." ]
+                                else
+                                    for rank, s in List.indexed scores do
+                                        let name =
+                                            model.data.users
+                                            |> List.tryFind (fun u -> u.id = s.userId)
+                                            |> Option.map (fun u -> u.displayName)
+                                            |> Option.defaultValue "?"
+                                        Html.div [
+                                            prop.className "score-row"
+                                            prop.children [
+                                                Html.span [ prop.text (match rank with 0 -> "🥇" | 1 -> "🥈" | _ -> "🥉") ]
+                                                Html.span [ prop.className "score-name"; prop.text name ]
+                                                Html.span [ prop.className "score-value"; prop.text (string s.score) ]
+                                            ]
+                                        ]
+                            ]
+                        ]
+                ]
+            ]
+        ]
+    ]
+
 let private overviewTab (model: Model) =
     let kids = model.data.users |> List.filter (fun u -> u.role = Child)
     Html.div [
@@ -53,6 +92,47 @@ let private overviewTab (model: Model) =
         prop.children [
             Html.h3 [ prop.className "admin-title"; prop.text "Children's progress" ]
             Html.div [ prop.className "kid-grid"; prop.children (kids |> List.map (kidCard model)) ]
+            scoreboard model
+        ]
+    ]
+
+/// Prizes waiting to be physically handed over.
+let private redemptionQueue (model: Model) dispatch =
+    let pending = pendingRedemptions model.data
+    Html.div [
+        prop.children [
+            Html.h3 [ prop.className "admin-title"; prop.text "🎁 Prizes to hand over" ]
+            if List.isEmpty pending then
+                Html.p [ prop.className "empty-note"; prop.text "No prizes waiting." ]
+            for (redemption, prize, child) in pending do
+                Html.div [
+                    prop.className "approval-row"
+                    prop.children [
+                        Html.div [
+                            prop.className "approval-info"
+                            prop.children [
+                                Html.div [ prop.className "approval-title"; prop.text (sprintf "%s %s" prize.icon prize.title) ]
+                                Html.div [ prop.className "approval-sub"
+                                           prop.text (sprintf "%s · bought %s · %d 🪙" child.displayName redemption.redeemedAt prize.cost) ]
+                            ]
+                        ]
+                        Html.div [
+                            prop.className "approval-actions"
+                            prop.children [
+                                Html.button [
+                                    prop.className "btn btn-approve"
+                                    prop.text "Given ✓"
+                                    prop.onClick (fun _ -> dispatch (FulfillRedemption redemption.id))
+                                ]
+                                Html.button [
+                                    prop.className "btn btn-reject"
+                                    prop.text "Refund"
+                                    prop.onClick (fun _ -> dispatch (RefundRedemption redemption.id))
+                                ]
+                            ]
+                        ]
+                    ]
+                ]
         ]
     ]
 
@@ -98,6 +178,96 @@ let private approvalsTab (model: Model) dispatch =
                         ]
                     ]
                 ]
+            redemptionQueue model dispatch
+        ]
+    ]
+
+// ---------------------------------------------------------------- prizes
+
+let private prizesTab (model: Model) dispatch =
+    let f = model.prizeForm
+    let set form = dispatch (PrizeFormChanged form)
+    Html.div [
+        prop.className "admin-section"
+        prop.children [
+            Html.h3 [ prop.className "admin-title"; prop.text "Create a real-world prize" ]
+            Html.p [ prop.className "empty-note"
+                     prop.text "Prizes appear in the kids' Shop tab. When a child buys one, coins are taken straight away and it shows up in Approvals for you to hand over." ]
+            Html.div [
+                prop.className "builder-form"
+                prop.children [
+                    Html.label [
+                        prop.className "field"
+                        prop.children [
+                            Html.span [ prop.className "field-label"; prop.text "Prize" ]
+                            Html.input [
+                                prop.className "input"
+                                prop.value f.title
+                                prop.placeholder "e.g. Movie night pick"
+                                prop.onChange (fun (v: string) -> set { f with title = v }) ]
+                        ]
+                    ]
+                    Html.label [
+                        prop.className "field"
+                        prop.children [
+                            Html.span [ prop.className "field-label"; prop.text "Icon (emoji)" ]
+                            Html.input [
+                                prop.className "input input-short"
+                                prop.value f.icon
+                                prop.onChange (fun (v: string) -> set { f with icon = v }) ]
+                        ]
+                    ]
+                    Html.label [
+                        prop.className "field"
+                        prop.children [
+                            Html.span [ prop.className "field-label"; prop.text "Cost (coins)" ]
+                            Html.input [
+                                prop.className "input input-short"; prop.type' "number"
+                                prop.value (string f.cost)
+                                prop.onChange (fun (v: string) -> set { f with cost = (match Int32.TryParse v with true, n -> n | _ -> f.cost) }) ]
+                        ]
+                    ]
+                    match model.prizeMessage with
+                    | Some m -> Html.div [ prop.className "builder-message"; prop.text m ]
+                    | None -> Html.none
+                    Html.button [
+                        prop.className "btn btn-primary"
+                        prop.text "Add prize"
+                        prop.onClick (fun _ -> dispatch SubmitPrize)
+                    ]
+                ]
+            ]
+            Html.h3 [ prop.className "admin-title"; prop.text "All prizes" ]
+            if List.isEmpty (prizesOf model.data) then
+                Html.p [ prop.className "empty-note"; prop.text "No prizes yet — add the first one above!" ]
+            Html.div [
+                prop.children [
+                    for prize in prizesOf model.data do
+                        Html.div [
+                            prop.className (if prize.active then "quest-admin-row" else "quest-admin-row inactive")
+                            prop.children [
+                                Html.span [ prop.className "qa-icon"; prop.text prize.icon ]
+                                Html.div [
+                                    prop.className "qa-info"
+                                    prop.children [
+                                        Html.div [ prop.className "qa-title"; prop.text prize.title ]
+                                        Html.div [ prop.className "qa-sub"; prop.text (sprintf "%d 🪙" prize.cost) ]
+                                    ]
+                                ]
+                                Html.button [
+                                    prop.className "btn btn-tiny"
+                                    prop.text (if prize.active then "Pause" else "Resume")
+                                    prop.onClick (fun _ -> dispatch (TogglePrizeActive (prize.id, not prize.active)))
+                                ]
+                                Html.button [
+                                    prop.className "btn btn-tiny btn-reject"
+                                    prop.text "Delete"
+                                    prop.onClick (fun _ -> dispatch (DeletePrize prize.id))
+                                ]
+                            ]
+                        ]
+                ]
+            ]
         ]
     ]
 
@@ -298,11 +468,14 @@ let view (model: Model) (user: User) dispatch =
             Html.nav [
                 prop.className "admin-tabs"
                 prop.children [
-                    let pendingCount = pendingApprovals model.data |> List.length
+                    let pendingCount =
+                        (pendingApprovals model.data |> List.length)
+                        + (pendingRedemptions model.data |> List.length)
                     for (tab, label) in
                         [ OverviewTab, "Overview"
                           ApprovalsTab, (if pendingCount > 0 then sprintf "Approvals (%d)" pendingCount else "Approvals")
                           BuilderTab, "Quests"
+                          PrizesTab, "Prizes"
                           SettingsTab, "Settings" ] do
                         Html.button [
                             prop.className (if tab = model.adminTab then "tab-btn active" else "tab-btn")
@@ -318,6 +491,7 @@ let view (model: Model) (user: User) dispatch =
                     | OverviewTab -> overviewTab model
                     | ApprovalsTab -> approvalsTab model dispatch
                     | BuilderTab -> builderTab model dispatch
+                    | PrizesTab -> prizesTab model dispatch
                     | SettingsTab -> settingsTab model dispatch
                 ]
             ]

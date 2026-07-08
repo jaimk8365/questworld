@@ -108,12 +108,39 @@ type LoginSession =
 type Settings =
     { soundOn: bool }
 
+/// A real-world reward the parent offers (screen time, outings…).
+type Prize =
+    { id: string
+      title: string
+      icon: string
+      cost: int
+      active: bool }
+
+/// A child has spent coins on a prize; parent marks it given (or refunds).
+type Redemption =
+    { id: string
+      prizeId: string
+      userId: string
+      redeemedAt: string
+      fulfilled: bool }
+
+/// Best score per (user, game, week) — feeds the family scoreboard.
+type ArcadeScore =
+    { userId: string
+      game: string   // "flight" | "memory"
+      score: int
+      weekKey: string }
+
 type AppData =
     { schemaVersion: int
       users: User list
       quests: Quest list
       completions: QuestCompletion list
-      settings: Settings }
+      settings: Settings
+      // option so older saves (without these fields) still decode
+      arcadeScores: ArcadeScore list option
+      prizes: Prize list option
+      redemptions: Redemption list option }
 
 /// Everything the UI needs to celebrate a completion.
 type CompletionOutcome =

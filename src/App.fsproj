@@ -9,6 +9,7 @@
     <Compile Include="Auth.fs" />
     <Compile Include="Catalog.fs" />
     <Compile Include="Arcade.fs" />
+    <Compile Include="Memory.fs" />
     <Compile Include="QuestEngine.fs" />
     <Compile Include="Codec.fs" />
     <Compile Include="Storage.fs" />

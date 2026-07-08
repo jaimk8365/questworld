@@ -20,6 +20,7 @@ type AdminTab =
     | OverviewTab
     | ApprovalsTab
     | BuilderTab
+    | PrizesTab
     | SettingsTab
 
 type QuestForm =
@@ -39,6 +40,13 @@ let emptyForm =
       questType = Chore; xp = 20; coins = 8
       assignThea = true; assignLevi = true
       recurrence = EveryDay; requiresApproval = true }
+
+type PrizeForm =
+    { title: string
+      icon: string
+      cost: int }
+
+let emptyPrizeForm = { title = ""; icon = "🎁"; cost = 40 }
 
 type Celebration =
     { outcome: CompletionOutcome
@@ -66,8 +74,12 @@ type Model =
       shopMessage: string option
       // arcade (transient — never persisted)
       arcadeGame: Arcade.Game option
+      memoryGame: Memory.Game option
       arcadeResult: ArcadeRunResult option
-      arcadeMessage: string option }
+      arcadeMessage: string option
+      // parent prize builder
+      prizeForm: PrizeForm
+      prizeMessage: string option }
 
 let currentUser (model: Model) : User option =
     model.currentUserId
@@ -103,6 +115,17 @@ type Msg =
     | ArcadeFlap
     | ArcadeTick
     | ArcadeExit
+    | MemoryStart
+    | MemoryFlip of int
+    | MemoryResolve
+    | MemoryExit
+    | RedeemPrize of string
+    | PrizeFormChanged of PrizeForm
+    | SubmitPrize
+    | TogglePrizeActive of string * bool
+    | DeletePrize of string
+    | FulfillRedemption of string
+    | RefundRedemption of string
 
 // -------------------------------------------------------------------- init
 
@@ -134,8 +157,11 @@ let init () : Model * Cmd<Msg> =
       celebration = None
       shopMessage = None
       arcadeGame = None
+      memoryGame = None
       arcadeResult = None
-      arcadeMessage = None },
+      arcadeMessage = None
+      prizeForm = emptyPrizeForm
+      prizeMessage = None },
     Cmd.none
 
 // ------------------------------------------------------------------ update
@@ -183,14 +209,14 @@ let update (msg: Msg) (model: Model) : Model * Cmd<Msg> =
 
     | Logout ->
         { model with currentUserId = None; selectedProfile = None; celebration = None
-                     arcadeGame = None; arcadeResult = None },
+                     arcadeGame = None; memoryGame = None; arcadeResult = None },
         Cmd.ofEffect (fun _ -> Storage.saveSession None)
 
     // -------------------------------------------------------- navigation
     | ChildTabChanged tab ->
         playFor model Sounds.tap
         { model with childTab = tab; shopMessage = None
-                     arcadeGame = None; arcadeResult = None; arcadeMessage = None }, Cmd.none
+                     arcadeGame = None; memoryGame = None; arcadeResult = None; arcadeMessage = None }, Cmd.none
 
     | AdminTabChanged tab ->
         { model with adminTab = tab; builderMessage = None; pwMessage = None }, Cmd.none
@@ -328,6 +354,7 @@ let update (msg: Msg) (model: Model) : Model * Cmd<Msg> =
                 { model with
                     data = data'
                     arcadeGame = Some (Arcade.newGame rng)
+                    memoryGame = None
                     arcadeResult = None
                     arcadeMessage = None },
                 persist data'
@@ -340,7 +367,7 @@ let update (msg: Msg) (model: Model) : Model * Cmd<Msg> =
         | Some game, Some userId when game.phase = Arcade.Flying ->
             let game' = Arcade.step rng game
             if game'.phase = Arcade.GameOver then
-                let data', result = finishArcadeRun model.data userId game'.score game'.stars
+                let data', result = finishArcadeRun model.data userId game'.score game'.stars DateTime.Now
                 if result.newBest then playFor model Sounds.levelUp
                 elif result.coinsEarned > 0 then playFor model Sounds.coin
                 { model with data = data'; arcadeGame = Some game'; arcadeResult = Some result },
@@ -350,7 +377,106 @@ let update (msg: Msg) (model: Model) : Model * Cmd<Msg> =
         | _ -> model, Cmd.none
 
     | ArcadeExit ->
-        { model with arcadeGame = None; arcadeResult = None }, Cmd.none
+        { model with arcadeGame = None; memoryGame = None; arcadeResult = None }, Cmd.none
+
+    // ------------------------------------------------------ memory game
+    | MemoryStart ->
+        match model.currentUserId, currentUser model with
+        | Some userId, Some user ->
+            match spendArcadeToken model.data userId with
+            | None ->
+                playFor model Sounds.oops
+                { model with arcadeMessage = Some "You need a token — 10 🪙 in the booth!" }, Cmd.none
+            | Some data' ->
+                playFor model Sounds.tap
+                { model with
+                    data = data'
+                    memoryGame = Some (Memory.newGame rng (Catalog.memoryFaces user.theme))
+                    arcadeGame = None
+                    arcadeResult = None
+                    arcadeMessage = None },
+                persist data'
+        | _ -> model, Cmd.none
+
+    | MemoryFlip i ->
+        match model.memoryGame, model.currentUserId with
+        | Some game, Some userId when game.phase = Memory.Playing ->
+            let game' = Memory.flip i game
+            if game' = game then model, Cmd.none
+            else
+                playFor model Sounds.tap
+                if game'.phase = Memory.Done then
+                    let data', result = finishMemoryRun model.data userId game' DateTime.Now
+                    if result.newBest then playFor model Sounds.levelUp else playFor model Sounds.coin
+                    { model with data = data'; memoryGame = Some game'; arcadeResult = Some result },
+                    persist data'
+                elif game'.locked.IsSome then
+                    // flip the mismatched pair back after a beat
+                    { model with memoryGame = Some game' },
+                    Cmd.ofEffect (fun dispatch ->
+                        Browser.Dom.window.setTimeout ((fun () -> dispatch MemoryResolve), 900) |> ignore)
+                else
+                    { model with memoryGame = Some game' }, Cmd.none
+        | _ -> model, Cmd.none
+
+    | MemoryResolve ->
+        { model with memoryGame = model.memoryGame |> Option.map Memory.resolve }, Cmd.none
+
+    | MemoryExit ->
+        { model with memoryGame = None; arcadeResult = None }, Cmd.none
+
+    // ------------------------------------------------------- prize shop
+    | RedeemPrize prizeId ->
+        match model.currentUserId with
+        | None -> model, Cmd.none
+        | Some userId ->
+            match redeemPrize model.data userId prizeId DateTime.Now with
+            | Error e ->
+                playFor model Sounds.oops
+                { model with shopMessage = Some e }, Cmd.none
+            | Ok (data', prize) ->
+                playFor model Sounds.questComplete
+                { model with
+                    data = data'
+                    shopMessage = Some (sprintf "🎉 %s is yours! The Quest Master will hand it over." prize.title) },
+                persist data'
+
+    | PrizeFormChanged form ->
+        { model with prizeForm = form; prizeMessage = None }, Cmd.none
+
+    | SubmitPrize ->
+        let f = model.prizeForm
+        if f.title.Trim() = "" then
+            { model with prizeMessage = Some "Give the prize a name." }, Cmd.none
+        elif f.cost < 1 then
+            { model with prizeMessage = Some "Cost must be at least 1 coin." }, Cmd.none
+        else
+            let prize =
+                { id = "p-" + string DateTime.Now.Ticks
+                  title = f.title.Trim()
+                  icon = (if f.icon.Trim() = "" then "🎁" else f.icon.Trim())
+                  cost = f.cost
+                  active = true }
+            let data' = addPrize model.data prize
+            { model with data = data'; prizeForm = emptyPrizeForm
+                         prizeMessage = Some (sprintf "Prize “%s” added! ✅" prize.title) },
+            persist data'
+
+    | TogglePrizeActive (prizeId, active) ->
+        let data' = setPrizeActive model.data prizeId active
+        { model with data = data' }, persist data'
+
+    | DeletePrize prizeId ->
+        let data' = deletePrize model.data prizeId
+        { model with data = data' }, persist data'
+
+    | FulfillRedemption id ->
+        let data' = fulfillRedemption model.data id
+        { model with data = data' }, persist data'
+
+    | RefundRedemption id ->
+        let data' = refundRedemption model.data id
+        { model with data = data' }, persist data'
 
 /// Ticks the arcade at ~30fps, but only while a run is in flight.
 let subscribe (model: Model) : Sub<Msg> =

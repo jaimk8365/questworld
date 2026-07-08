@@ -487,6 +487,69 @@ body {
 .arcade-over-badge { font-weight: 800; color: #3f9d51; font-size: 13px; }
 .arcade-over-best { color: var(--ink-soft); font-weight: 700; font-size: 14px; }
 
+/* ---------------------------------------------- arcade: two games */
+
+.game-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin: 16px auto; max-width: 520px; }
+.game-card {
+  background: var(--card); border: 2px solid var(--card-border); border-radius: var(--radius);
+  padding: 18px 14px; text-align: center; box-shadow: var(--shadow);
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+}
+.game-card-icon { font-size: 40px; }
+.game-card-name { font-weight: 800; font-size: 17px; }
+.game-card-blurb { font-size: 12.5px; color: var(--ink-soft); }
+.game-card-best { font-size: 12px; font-weight: 800; color: var(--accent); }
+
+/* ------------------------------------------------- memory match */
+
+.memory-wrap { text-align: center; }
+.memory-hud { font-weight: 800; color: var(--ink-soft); margin-bottom: 12px; }
+.memory-grid {
+  display: grid; grid-template-columns: repeat(4, 72px); gap: 10px;
+  justify-content: center; margin: 0 auto 16px;
+}
+.mem-card {
+  width: 72px; height: 72px; font-size: 34px; line-height: 1;
+  border: 2px solid var(--card-border); border-radius: var(--radius);
+  background: var(--accent-soft); cursor: pointer;
+  box-shadow: var(--shadow);
+  transition: transform 0.15s ease, background 0.2s ease;
+  font-family: inherit;
+}
+.mem-card:active { transform: scale(0.92); }
+.mem-card.mem-up { background: var(--card); transform: scale(1.05); }
+.mem-card.mem-matched { background: #eafbea; border-color: #7fce8e; opacity: 0.85; }
+.arcade-over-inline {
+  background: var(--card); border: 3px solid var(--accent); border-radius: var(--radius);
+  padding: 18px; max-width: 340px; margin: 0 auto; text-align: center;
+  display: flex; flex-direction: column; gap: 8px; align-items: center;
+  box-shadow: var(--shadow);
+}
+.arcade-over-inline h3 { color: var(--accent); font-size: 20px; }
+
+/* -------------------------------------------------- prize shop */
+
+.prize-note { color: var(--ink-soft); font-size: 13px; margin-bottom: 10px; }
+.prize-row {
+  display: flex; align-items: center; gap: 12px;
+  background: var(--card); border: 2px solid var(--card-border); border-radius: var(--radius);
+  padding: 12px 14px; margin-bottom: 10px; box-shadow: var(--shadow);
+}
+.prize-icon { font-size: 30px; }
+.prize-info { flex: 1; min-width: 0; }
+.prize-title { font-weight: 800; font-size: 15px; }
+
+/* ------------------------------------------------- scoreboard */
+
+.score-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 4px; font-weight: 700; font-size: 15px;
+  border-bottom: 1px dashed var(--card-border);
+}
+.score-row:last-child { border-bottom: none; }
+.score-name { flex: 1; }
+.score-value { font-weight: 900; color: var(--accent); }
+
 /* --------------------------------------------------- animations */
 
 @keyframes floaty {
