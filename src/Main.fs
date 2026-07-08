@@ -37,5 +37,6 @@ let view (model: Model) dispatch =
     ]
 
 Program.mkProgram init update view
+|> Program.withSubscription subscribe
 |> Program.withReactSynchronous "root"
 |> Program.run

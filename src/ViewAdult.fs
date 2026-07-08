@@ -38,6 +38,9 @@ let private kidCard (model: Model) (kid: User) =
                     Html.div [ prop.className "kid-stat"; prop.text (sprintf "✅ %d done today" doneToday) ]
                     Html.div [ prop.className "kid-stat"; prop.text (sprintf "⏳ %d waiting" pending) ]
                     Html.div [ prop.className "kid-stat"; prop.text (sprintf "🏅 %d badges" (List.length kid.badges)) ]
+                    match kid.arcade with
+                    | Some a -> Html.div [ prop.className "kid-stat"; prop.text (sprintf "🎮 best %d" a.bestScore) ]
+                    | None -> Html.none
                 ]
             ]
         ]

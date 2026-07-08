@@ -196,7 +196,8 @@ let main _ =
     check "equipping unowned item is a no-op" (toggleEquip data0 "u-thea" "c-golden-crown" = data0)
 
     section "Badges"
-    let ctx = { level = 10; totalCompleted = 30; choreCompleted = 20; behaviourCompleted = 12; cosmeticsOwned = 4 }
+    let ctx = { level = 10; totalCompleted = 30; choreCompleted = 20; behaviourCompleted = 12
+                cosmeticsOwned = 4; arcadeBest = 0; arcadeRuns = 0 }
     check "milestone badges fire" (badgeDefs |> List.find (fun b -> b.id = "b-twentyfive") |> fun b -> b.earned ctx)
     check "level badges fire" (badgeDefs |> List.find (fun b -> b.id = "b-level10") |> fun b -> b.earned ctx)
     check "unreached badges stay locked" (badgeDefs |> List.find (fun b -> b.id = "b-hundred") |> fun b -> not (b.earned ctx))
@@ -217,6 +218,98 @@ let main _ =
     check "paused quest hidden from child" (not (questsForUser dPause "u-thea" monday |> List.exists (fun (q, _) -> q.id = "q-custom")))
     let dDel = deleteQuest dAdd "q-custom"
     check "deleted quest gone" (not (dDel.quests |> List.exists (fun q -> q.id = "q-custom")))
+
+    section "Arcade engine / physics"
+    let arng = Random(11)
+    let g0 = Arcade.newGame arng
+    check "new game starts flying mid-field" (g0.phase = Arcade.Flying && g0.y = Arcade.fieldH / 2.0)
+    check "first obstacle spawns off-screen" (g0.obstacles |> List.forall (fun o -> o.x >= Arcade.fieldW))
+    let g1 = Arcade.step arng g0
+    check "gravity pulls down" (g1.vy > g0.vy && g1.y > g0.y)
+    check "flap pushes up" ((Arcade.flap g1).vy = Arcade.flapVelocity)
+    check "flap after game over does nothing" ((Arcade.flap { g1 with phase = Arcade.GameOver }).vy = g1.vy)
+    let crashed =
+        let mutable g = g0
+        for _ in 1 .. 300 do g <- Arcade.step arng g   // never flap → fall
+        g
+    check "falling without flapping ends the run" (crashed.phase = Arcade.GameOver)
+    check "stepping a finished game is a no-op" (Arcade.step arng crashed = crashed)
+    check "the conveyor never runs out of obstacles"
+        (let rng2 = Random(3)
+         let mutable g = Arcade.newGame rng2
+         let mutable ok = true
+         for _ in 1 .. 400 do
+             g <- Arcade.step rng2 { g with phase = Arcade.Flying; y = g.obstacles.Head.gapY + Arcade.gapH / 2.0; vy = 0.0 }
+             ok <- ok && not (List.isEmpty g.obstacles)
+         ok)
+    // score: craft an obstacle that has just passed the player
+    let passing =
+        { g0 with obstacles = [ { x = Arcade.playerX - Arcade.obstacleW + 1.0; gapY = 10.0; passed = false; hasStar = false; starTaken = false } ] }
+    check "passing an obstacle scores a point" ((Arcade.step arng passing).score = g0.score + 1)
+    // star collection: obstacle centred on the player, star at gap centre, player at gap centre
+    let starGapY = 100.0
+    let starGame =
+        { g0 with
+            y = starGapY + Arcade.gapH / 2.0
+            vy = 0.0
+            obstacles = [ { x = Arcade.playerX - Arcade.obstacleW / 2.0; gapY = starGapY; passed = true; hasStar = true; starTaken = false } ] }
+    check "flying through a star collects it" ((Arcade.step arng starGame).stars = 1)
+    // collision: obstacle at the player, gap far away from player's y
+    let collide =
+        { g0 with
+            y = 50.0; vy = 0.0
+            obstacles = [ { x = Arcade.playerX - 10.0; gapY = 300.0; passed = false; hasStar = false; starTaken = false } ] }
+    check "hitting a column ends the run" ((Arcade.step arng collide).phase = Arcade.GameOver)
+
+    section "Arcade economy"
+    let richLevi =
+        seedUsers
+        |> List.map (fun u -> if u.id = "u-levi" then { u with coins = 25; xp = 200 } else u)  // xp 200 → level 3+
+    let arcData = { seedData with users = richLevi }
+    check "arcade locked below level 3"
+        (match buyArcadeToken arcData "u-thea" with Error _ -> true | Ok _ -> false)
+    check "token purchase fails when broke"
+        (let broke = { arcData with users = arcData.users |> List.map (fun u -> if u.id = "u-levi" then { u with coins = 5 } else u) }
+         match buyArcadeToken broke "u-levi" with Error _ -> true | Ok _ -> false)
+    match buyArcadeToken arcData "u-levi" with
+    | Error e -> check (sprintf "token purchase failed: %s" e) false
+    | Ok d ->
+        let levi = d.users |> List.find (fun u -> u.id = "u-levi")
+        check "token purchase: coins deducted, token added"
+            (levi.coins = 25 - Arcade.tokenCost && (arcadeOf levi).tokens = 1)
+        match spendArcadeToken d "u-levi" with
+        | None -> check "spending a token failed" false
+        | Some d2 ->
+            check "token spent on start" ((arcadeOf (d2.users |> List.find (fun u -> u.id = "u-levi"))).tokens = 0)
+            check "cannot start without a token" ((spendArcadeToken d2 "u-levi").IsNone)
+            // finish a run: score 7, 3 stars, first ever → new best + badge
+            let d3, result = finishArcadeRun d2 "u-levi" 7 3
+            let levi3 = d3.users |> List.find (fun u -> u.id = "u-levi")
+            check "run payout = stars + new-best bonus" (result.coinsEarned = 3 + Arcade.newBestBonus && result.newBest)
+            check "best score and run count recorded" ((arcadeOf levi3).bestScore = 7 && (arcadeOf levi3).totalRuns = 1)
+            check "'Game On' badge awarded on first run" (levi3.badges |> List.contains "b-arcade")
+            // second, worse run: no bonus, no new best
+            let d4, result2 = finishArcadeRun d3 "u-levi" 4 2
+            let levi4 = d4.users |> List.find (fun u -> u.id = "u-levi")
+            check "worse run pays stars only" (result2.coinsEarned = 2 && not result2.newBest)
+            check "best score keeps the higher value" ((arcadeOf levi4).bestScore = 7)
+            // 20+ run unlocks Ace Pilot
+            let d5, _ = finishArcadeRun d4 "u-levi" 21 0
+            check "'Ace Pilot' badge at score 20+"
+                ((d5.users |> List.find (fun u -> u.id = "u-levi")).badges |> List.contains "b-ace")
+
+    section "Save migration (v1 → arcade)"
+    // A v1 save has no "arcade" field on users — it must still decode.
+    let v1Json =
+        """{"schemaVersion":1,"users":[{"id":"u-thea","username":"thea","displayName":"Thea","passwordHash":"123","role":"Child","theme":"DragonDream","xp":55,"coins":9,"inventory":{"owned":[],"equipped":[]},"badges":["b-first"]}],"quests":[],"completions":[],"settings":{"soundOn":true}}"""
+    (match deserializeData v1Json with
+     | Ok d ->
+         let u = d.users |> List.head
+         check "v1 save decodes after adding the arcade field" true
+         check "migrated user keeps xp/coins/badges" (u.xp = 55 && u.coins = 9 && u.badges = [ "b-first" ])
+         check "migrated user has no arcade progress yet" (u.arcade.IsNone && (arcadeOf u).tokens = 0)
+     | Error e ->
+         check (sprintf "v1 save failed to decode: %s" e) false)
 
     section "Persistence / serialization round-trip"
     // Round-trip a data set that exercises every union case in play.

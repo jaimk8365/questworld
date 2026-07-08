@@ -150,6 +150,9 @@ let celebrationOverlay (model: Model) (celebration: Celebration) dispatch =
                                                        prop.text (sprintf "%s Your avatar evolved into %s!" stage.emoji stage.name) ]
                                         else Html.none
                                     | None -> Html.none
+                                    if o.levelBefore < 3 && o.levelAfter >= 3 then
+                                        Html.div [ prop.className "evolve-line"
+                                                   prop.text "🎮 The ARCADE is now OPEN! Check your new tab!" ]
                                 ]
                             ]
                         for badgeId in o.newBadges do

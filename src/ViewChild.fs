@@ -187,8 +187,8 @@ let private badgesTab (model: Model) (user: User) =
 let private tabBar (theme: ProfileTheme) (active: ChildTab) dispatch =
     let tabs =
         match theme with
-        | DragonDream -> [ QuestsTab, "🪄", "Quests"; ShopTab, "🛍️", "Shop"; BadgesTab, "🏅", "Badges" ]
-        | _ -> [ QuestsTab, "⛏️", "Quests"; ShopTab, "📦", "Shop"; BadgesTab, "🏅", "Badges" ]
+        | DragonDream -> [ QuestsTab, "🪄", "Quests"; ShopTab, "🛍️", "Shop"; ArcadeTab, "🎮", "Arcade"; BadgesTab, "🏅", "Badges" ]
+        | _ -> [ QuestsTab, "⛏️", "Quests"; ShopTab, "📦", "Shop"; ArcadeTab, "🎮", "Arcade"; BadgesTab, "🏅", "Badges" ]
     Html.div [
         prop.className "tabbar"
         prop.children [
@@ -246,6 +246,7 @@ let view (model: Model) (user: User) dispatch =
                     match model.childTab with
                     | QuestsTab -> questsTab model user dispatch
                     | ShopTab -> shopTab model user dispatch
+                    | ArcadeTab -> ViewArcade.view model user dispatch
                     | BadgesTab -> badgesTab model user
                 ]
             ]

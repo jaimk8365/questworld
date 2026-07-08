@@ -33,7 +33,9 @@ type BadgeCtx =
       totalCompleted: int
       choreCompleted: int
       behaviourCompleted: int
-      cosmeticsOwned: int }
+      cosmeticsOwned: int
+      arcadeBest: int
+      arcadeRuns: int }
 
 type BadgeDef =
     { id: string
@@ -53,7 +55,9 @@ let badgeDefs : BadgeDef list =
       { id = "b-level5";    name = "Rising Star";      icon = "🚀"; description = "Reach level 5";                  earned = fun c -> c.level >= 5 }
       { id = "b-level10";   name = "Superstar";        icon = "🌠"; description = "Reach level 10";                 earned = fun c -> c.level >= 10 }
       { id = "b-level20";   name = "Mythic";           icon = "🐲"; description = "Reach level 20";                 earned = fun c -> c.level >= 20 }
-      { id = "b-collector"; name = "Collector";        icon = "🎒"; description = "Own 3 cosmetics";                earned = fun c -> c.cosmeticsOwned >= 3 } ]
+      { id = "b-collector"; name = "Collector";        icon = "🎒"; description = "Own 3 cosmetics";                earned = fun c -> c.cosmeticsOwned >= 3 }
+      { id = "b-arcade";    name = "Game On";          icon = "🎮"; description = "Play your first Arcade flight";  earned = fun c -> c.arcadeRuns >= 1 }
+      { id = "b-ace";       name = "Ace Pilot";        icon = "✈️"; description = "Score 20 in one Arcade flight";  earned = fun c -> c.arcadeBest >= 20 } ]
 
 let badgeById (id: string) = badgeDefs |> List.tryFind (fun b -> b.id = id)
 
@@ -65,15 +69,15 @@ let seedUsers : User list =
     [ { id = "u-thea";  username = "thea";  displayName = "Thea"
         passwordHash = hashPassword "thea" "sparkle"
         role = Child; theme = DragonDream; xp = 0; coins = 0
-        inventory = emptyInventory; badges = [] }
+        inventory = emptyInventory; badges = []; arcade = None }
       { id = "u-levi";  username = "levi";  displayName = "Levi"
         passwordHash = hashPassword "levi" "blocks"
         role = Child; theme = BlockCraft; xp = 0; coins = 0
-        inventory = emptyInventory; badges = [] }
+        inventory = emptyInventory; badges = []; arcade = None }
       { id = "u-parent"; username = "parent"; displayName = "Quest Master"
         passwordHash = hashPassword "parent" "questmaster"
         role = Parent; theme = AdminClean; xp = 0; coins = 0
-        inventory = emptyInventory; badges = [] } ]
+        inventory = emptyInventory; badges = []; arcade = None } ]
 
 // -------------------------------------------------------------- seed quests
 

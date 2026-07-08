@@ -82,6 +82,11 @@ type LootResult =
     | XpBoost of int
     | CosmeticDrop of string  // cosmetic id
 
+type ArcadeProgress =
+    { tokens: int
+      bestScore: int
+      totalRuns: int }
+
 type User =
     { id: string
       username: string
@@ -92,7 +97,9 @@ type User =
       xp: int
       coins: int
       inventory: Inventory
-      badges: string list }
+      badges: string list
+      // option so v1 saves (which lack the field) still decode — None = never played
+      arcade: ArcadeProgress option }
 
 type LoginSession =
     { userId: string

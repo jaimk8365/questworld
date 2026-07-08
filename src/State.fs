@@ -13,6 +13,7 @@ open QuestWorld.Catalog
 type ChildTab =
     | QuestsTab
     | ShopTab
+    | ArcadeTab
     | BadgesTab
 
 type AdminTab =
@@ -62,7 +63,11 @@ type Model =
       pwMessage: string option
       // feedback
       celebration: Celebration option
-      shopMessage: string option }
+      shopMessage: string option
+      // arcade (transient — never persisted)
+      arcadeGame: Arcade.Game option
+      arcadeResult: ArcadeRunResult option
+      arcadeMessage: string option }
 
 let currentUser (model: Model) : User option =
     model.currentUserId
@@ -93,6 +98,11 @@ type Msg =
     | PwValueChanged of string
     | SubmitPassword
     | ResetAllData
+    | BuyArcadeToken
+    | ArcadeStart
+    | ArcadeFlap
+    | ArcadeTick
+    | ArcadeExit
 
 // -------------------------------------------------------------------- init
 
@@ -122,7 +132,10 @@ let init () : Model * Cmd<Msg> =
       pwNewValue = ""
       pwMessage = None
       celebration = None
-      shopMessage = None },
+      shopMessage = None
+      arcadeGame = None
+      arcadeResult = None
+      arcadeMessage = None },
     Cmd.none
 
 // ------------------------------------------------------------------ update
@@ -169,13 +182,15 @@ let update (msg: Msg) (model: Model) : Model * Cmd<Msg> =
                 Cmd.ofEffect (fun _ -> Storage.saveSession (Some session))
 
     | Logout ->
-        { model with currentUserId = None; selectedProfile = None; celebration = None },
+        { model with currentUserId = None; selectedProfile = None; celebration = None
+                     arcadeGame = None; arcadeResult = None },
         Cmd.ofEffect (fun _ -> Storage.saveSession None)
 
     // -------------------------------------------------------- navigation
     | ChildTabChanged tab ->
         playFor model Sounds.tap
-        { model with childTab = tab; shopMessage = None }, Cmd.none
+        { model with childTab = tab; shopMessage = None
+                     arcadeGame = None; arcadeResult = None; arcadeMessage = None }, Cmd.none
 
     | AdminTabChanged tab ->
         { model with adminTab = tab; builderMessage = None; pwMessage = None }, Cmd.none
@@ -286,3 +301,64 @@ let update (msg: Msg) (model: Model) : Model * Cmd<Msg> =
         let seed = seedData
         { model with data = seed; currentUserId = None; selectedProfile = None },
         Cmd.batch [ persist seed; Cmd.ofEffect (fun _ -> Storage.saveSession None) ]
+
+    // ------------------------------------------------------------ arcade
+    | BuyArcadeToken ->
+        match model.currentUserId with
+        | None -> model, Cmd.none
+        | Some userId ->
+            match buyArcadeToken model.data userId with
+            | Error e ->
+                playFor model Sounds.oops
+                { model with arcadeMessage = Some e }, Cmd.none
+            | Ok data' ->
+                playFor model Sounds.coin
+                { model with data = data'; arcadeMessage = Some "Token bought! 🎟️" }, persist data'
+
+    | ArcadeStart ->
+        match model.currentUserId with
+        | None -> model, Cmd.none
+        | Some userId ->
+            match spendArcadeToken model.data userId with
+            | None ->
+                playFor model Sounds.oops
+                { model with arcadeMessage = Some "You need a token — 10 🪙 in the booth!" }, Cmd.none
+            | Some data' ->
+                playFor model Sounds.tap
+                { model with
+                    data = data'
+                    arcadeGame = Some (Arcade.newGame rng)
+                    arcadeResult = None
+                    arcadeMessage = None },
+                persist data'
+
+    | ArcadeFlap ->
+        { model with arcadeGame = model.arcadeGame |> Option.map Arcade.flap }, Cmd.none
+
+    | ArcadeTick ->
+        match model.arcadeGame, model.currentUserId with
+        | Some game, Some userId when game.phase = Arcade.Flying ->
+            let game' = Arcade.step rng game
+            if game'.phase = Arcade.GameOver then
+                let data', result = finishArcadeRun model.data userId game'.score game'.stars
+                if result.newBest then playFor model Sounds.levelUp
+                elif result.coinsEarned > 0 then playFor model Sounds.coin
+                { model with data = data'; arcadeGame = Some game'; arcadeResult = Some result },
+                persist data'
+            else
+                { model with arcadeGame = Some game' }, Cmd.none
+        | _ -> model, Cmd.none
+
+    | ArcadeExit ->
+        { model with arcadeGame = None; arcadeResult = None }, Cmd.none
+
+/// Ticks the arcade at ~30fps, but only while a run is in flight.
+let subscribe (model: Model) : Sub<Msg> =
+    match model.arcadeGame with
+    | Some game when game.phase = Arcade.Flying ->
+        [ [ "arcade-tick" ],
+          fun dispatch ->
+              let id = Browser.Dom.window.setInterval ((fun () -> dispatch ArcadeTick), 33)
+              { new System.IDisposable with
+                  member _.Dispose() = Browser.Dom.window.clearInterval id } ]
+    | _ -> []

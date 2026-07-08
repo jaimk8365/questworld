@@ -50,6 +50,10 @@ let pendingApprovals (data: AppData) =
 
 // ------------------------------------------------------------ badge engine
 
+/// Arcade progress with a safe default for users who never played (or v1 saves).
+let arcadeOf (user: User) : ArcadeProgress =
+    user.arcade |> Option.defaultValue { tokens = 0; bestScore = 0; totalRuns = 0 }
+
 let badgeCtxFor (data: AppData) (user: User) : BadgeCtx =
     let mine = data.completions |> List.filter (fun c -> c.userId = user.id && c.status = Completed)
     let ofType t =
@@ -58,11 +62,14 @@ let badgeCtxFor (data: AppData) (user: User) : BadgeCtx =
             data.quests
             |> List.exists (fun q -> q.id = c.questId && q.questType = t))
         |> List.length
+    let arcade = arcadeOf user
     { level = levelForXp user.xp
       totalCompleted = List.length mine
       choreCompleted = ofType Chore
       behaviourCompleted = ofType Behaviour
-      cosmeticsOwned = List.length user.inventory.owned }
+      cosmeticsOwned = List.length user.inventory.owned
+      arcadeBest = arcade.bestScore
+      arcadeRuns = arcade.totalRuns }
 
 let newlyEarnedBadges (data: AppData) (user: User) : string list =
     let ctx = badgeCtxFor data user
@@ -206,6 +213,60 @@ let toggleEquip (data: AppData) (userId: string) (cosmeticId: string) : AppData 
             then inv.equipped |> List.filter ((<>) cosmeticId)
             else cosmeticId :: inv.equipped
         replaceUser data { user with inventory = { inv with equipped = equipped } }
+
+// ------------------------------------------------------------- arcade
+
+/// Level required before the Arcade tab unlocks.
+let arcadeUnlockLevel = 3
+
+let arcadeUnlockedFor (user: User) =
+    levelForXp user.xp >= arcadeUnlockLevel
+
+let buyArcadeToken (data: AppData) (userId: string) : Result<AppData, string> =
+    match data.users |> List.tryFind (fun u -> u.id = userId) with
+    | None -> Error "User not found."
+    | Some user when not (arcadeUnlockedFor user) -> Error "The Arcade unlocks at level 3!"
+    | Some user when user.coins < Arcade.tokenCost -> Error "Not enough coins — quests pay for flights!"
+    | Some user ->
+        let arcade = arcadeOf user
+        Ok (replaceUser data
+                { user with
+                    coins = user.coins - Arcade.tokenCost
+                    arcade = Some { arcade with tokens = arcade.tokens + 1 } })
+
+/// Spends one token to start a run. Returns None if no token available.
+let spendArcadeToken (data: AppData) (userId: string) : AppData option =
+    match data.users |> List.tryFind (fun u -> u.id = userId) with
+    | Some user when (arcadeOf user).tokens >= 1 && arcadeUnlockedFor user ->
+        let arcade = arcadeOf user
+        Some (replaceUser data { user with arcade = Some { arcade with tokens = arcade.tokens - 1 } })
+    | _ -> None
+
+type ArcadeRunResult =
+    { coinsEarned: int
+      newBest: bool
+      newBadges: string list }
+
+/// Settles a finished run: stars become coins, a new best score pays a
+/// bonus, records update, badges may unlock.
+let finishArcadeRun (data: AppData) (userId: string) (score: int) (starsCollected: int) : AppData * ArcadeRunResult =
+    match data.users |> List.tryFind (fun u -> u.id = userId) with
+    | None -> data, { coinsEarned = 0; newBest = false; newBadges = [] }
+    | Some user ->
+        let arcade = arcadeOf user
+        let newBest = score > arcade.bestScore
+        let coinsEarned = starsCollected + (if newBest then Arcade.newBestBonus else 0)
+        let updated =
+            { user with
+                coins = user.coins + coinsEarned
+                arcade =
+                    Some { tokens = arcade.tokens
+                           bestScore = max arcade.bestScore score
+                           totalRuns = arcade.totalRuns + 1 } }
+        let data' = replaceUser data updated
+        let newBadges = newlyEarnedBadges data' updated
+        let final = { updated with badges = updated.badges @ newBadges }
+        replaceUser data' final, { coinsEarned = coinsEarned; newBest = newBest; newBadges = newBadges }
 
 // ----------------------------------------------------------- quest admin
 

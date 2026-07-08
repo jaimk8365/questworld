@@ -8,6 +8,7 @@
     <Compile Include="Progression.fs" />
     <Compile Include="Auth.fs" />
     <Compile Include="Catalog.fs" />
+    <Compile Include="Arcade.fs" />
     <Compile Include="QuestEngine.fs" />
     <Compile Include="Codec.fs" />
     <Compile Include="Storage.fs" />
@@ -15,6 +16,7 @@
     <Compile Include="State.fs" />
     <Compile Include="ViewShared.fs" />
     <Compile Include="ViewLogin.fs" />
+    <Compile Include="ViewArcade.fs" />
     <Compile Include="ViewChild.fs" />
     <Compile Include="ViewAdult.fs" />
     <Compile Include="Main.fs" />
