@@ -105,6 +105,12 @@ what lets the .NET test suite exercise the real game logic.
   Thea; wooden rookie → Netherite Legend for Levi).
 - **Coins** buy cosmetics in each child's themed shop; equipped cosmetics float
   around the avatar.
+- **The Arcade 🎮** (unlocks at level 3): a tap-to-fly mini-game — Thea's
+  "Sky Dance" and Levi's "Cave Flight". One flight costs a token (10 coins,
+  bought in the Arcade booth). Each star/diamond caught pays back 1 coin and a
+  new best score pays +5 — fun, but always a slight net coin sink so quests
+  stay the real economy. Badges: "Game On" (first flight) and "Ace Pilot"
+  (score 20+). Physics lives in `src/Arcade.fs`, fully unit-tested.
 
 ## Future expansions (hooks already in place)
 
