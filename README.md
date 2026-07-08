@@ -105,12 +105,22 @@ what lets the .NET test suite exercise the real game logic.
   Thea; wooden rookie → Netherite Legend for Levi).
 - **Coins** buy cosmetics in each child's themed shop; equipped cosmetics float
   around the avatar.
-- **The Arcade 🎮** (unlocks at level 3): a tap-to-fly mini-game — Thea's
-  "Sky Dance" and Levi's "Cave Flight". One flight costs a token (10 coins,
-  bought in the Arcade booth). Each star/diamond caught pays back 1 coin and a
-  new best score pays +5 — fun, but always a slight net coin sink so quests
-  stay the real economy. Badges: "Game On" (first flight) and "Ace Pilot"
-  (score 20+). Physics lives in `src/Arcade.fs`, fully unit-tested.
+- **The Arcade 🎮** (unlocks at level 3): two mini-games, both costing one
+  token (10 coins, bought in the booth). The tap-to-fly game — Thea's
+  "Sky Dance", Levi's "Cave Flight" — pays 1 coin per star/diamond caught;
+  the memory game — "Dragon Pairs" / "Miner's Match" — pays up to 8 coins for
+  a clean 8-pair board. A new personal best pays +5. Payouts always net below
+  the token cost so quests stay the real economy. Badges: "Game On" (first
+  game) and "Ace Pilot" (flight score 20+). Engines in `src/Arcade.fs` and
+  `src/Memory.fs`, fully unit-tested.
+- **Weekly family scoreboard**: each child's best score per game per week is
+  recorded; the parent's Overview tab shows this week's ranked scoreboard
+  (resets every Monday, history kept).
+- **Real Prizes 🎁**: the parent creates real-world rewards in the Prizes tab
+  (screen time, outings…). They appear in the kids' Shop; buying one deducts
+  coins immediately and lands in the parent's Approvals as "Prizes to hand
+  over" with Given/Refund buttons. Deleting a prize auto-refunds pending
+  redemptions.
 
 ## Future expansions (hooks already in place)
 
