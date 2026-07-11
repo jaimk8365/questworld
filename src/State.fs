@@ -79,7 +79,11 @@ type Model =
       arcadeMessage: string option
       // parent prize builder
       prizeForm: PrizeForm
-      prizeMessage: string option }
+      prizeMessage: string option
+      // cross-device sync
+      syncToken: string          // "" = sync off
+      syncTokenInput: string
+      syncStatus: string option }
 
 let currentUser (model: Model) : User option =
     model.currentUserId
@@ -126,8 +130,17 @@ type Msg =
     | DeletePrize of string
     | FulfillRedemption of string
     | RefundRedemption of string
+    | SyncTokenInputChanged of string
+    | SaveSyncToken
+    | DisableSync
+    | SyncNow
+    | SyncDone of AppData
+    | SyncFailed of exn
 
 // -------------------------------------------------------------------- init
+
+let private syncCmd (token: string) (data: AppData) : Cmd<Msg> =
+    Cmd.OfPromise.either (Sync.syncOnce token) data SyncDone SyncFailed
 
 let init () : Model * Cmd<Msg> =
     let data =
@@ -142,6 +155,7 @@ let init () : Model * Cmd<Msg> =
         session
         |> Option.map (fun s -> s.userId)
         |> Option.filter (fun id -> data.users |> List.exists (fun u -> u.id = id))
+    let syncToken = Sync.loadToken ()
     { data = data
       currentUserId = userId
       selectedProfile = None
@@ -161,8 +175,11 @@ let init () : Model * Cmd<Msg> =
       arcadeResult = None
       arcadeMessage = None
       prizeForm = emptyPrizeForm
-      prizeMessage = None },
-    Cmd.none
+      prizeMessage = None
+      syncToken = syncToken
+      syncTokenInput = ""
+      syncStatus = (if syncToken = "" then None else Some "Syncing…") },
+    (if syncToken = "" then Cmd.none else syncCmd syncToken data)
 
 // ------------------------------------------------------------------ update
 
@@ -174,7 +191,7 @@ let private persist (data: AppData) : Cmd<Msg> =
 let private playFor (model: Model) (sound: unit -> unit) =
     if model.data.settings.soundOn then sound ()
 
-let update (msg: Msg) (model: Model) : Model * Cmd<Msg> =
+let private updateCore (msg: Msg) (model: Model) : Model * Cmd<Msg> =
     match msg with
     // ------------------------------------------------------------- login
     | SelectProfile id ->
@@ -478,13 +495,101 @@ let update (msg: Msg) (model: Model) : Model * Cmd<Msg> =
         let data' = refundRedemption model.data id
         { model with data = data' }, persist data'
 
-/// Ticks the arcade at ~30fps, but only while a run is in flight.
+    // -------------------------------------------------------------- sync
+    | SyncTokenInputChanged v ->
+        { model with syncTokenInput = v }, Cmd.none
+
+    | SaveSyncToken ->
+        let token = model.syncTokenInput.Trim()
+        if token = "" then
+            { model with syncStatus = Some "Paste the sync key first." }, Cmd.none
+        else
+            { model with syncToken = token; syncTokenInput = ""; syncStatus = Some "Connecting…" },
+            Cmd.batch [ Cmd.ofEffect (fun _ -> Sync.saveToken token); syncCmd token model.data ]
+
+    | DisableSync ->
+        { model with syncToken = ""; syncTokenInput = ""; syncStatus = Some "Sync is off — this device is on its own again." },
+        Cmd.ofEffect (fun _ -> Sync.saveToken "")
+
+    | SyncNow ->
+        if model.syncToken = "" then model, Cmd.none
+        else { model with syncStatus = Some "Syncing…" }, syncCmd model.syncToken model.data
+
+    | SyncDone merged ->
+        // local actions may have landed while the sync was in flight
+        let final = Merge.mergeData merged model.data
+        { model with
+            data = final
+            syncStatus = Some (sprintf "✓ Synced %s" (DateTime.Now.ToString("HH:mm"))) },
+        Cmd.ofEffect (fun _ -> Storage.saveData final)
+
+    | SyncFailed e ->
+        let msg = if isNull e.Message then "connection problem" else e.Message
+        { model with syncStatus = Some (sprintf "⚠️ Sync problem: %s" msg) }, Cmd.none
+
+// ---------------------------------------------------- stamping + sync push
+
+let private nowStamp () = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")
+
+/// Marks every changed user/completion with a fresh timestamp and bumps the
+/// catalog revision on quest/prize edits — the raw material Merge needs.
+let private stampChanges (before: AppData) (after: AppData) : AppData =
+    let now = nowStamp ()
+    let users =
+        after.users
+        |> List.map (fun u ->
+            match before.users |> List.tryFind (fun o -> o.id = u.id) with
+            | Some o when o = u -> u
+            | _ -> { u with touchedAt = Some now })
+    let completions =
+        after.completions
+        |> List.map (fun c ->
+            match before.completions
+                  |> List.tryFind (fun o -> o.questId = c.questId && o.userId = c.userId && o.periodKey = c.periodKey) with
+            | Some o when o = c -> c
+            | _ -> { c with updatedAt = Some now })
+    let catalogChanged =
+        after.quests <> before.quests || prizesOf after <> prizesOf before
+    let rev = max (after.catalogRev |> Option.defaultValue 0) (before.catalogRev |> Option.defaultValue 0)
+    { after with
+        users = users
+        completions = completions
+        catalogRev = Some (if catalogChanged then rev + 1 else rev) }
+
+/// Wraps updateCore: any action that changed the data gets stamped for
+/// merge, saved locally, and pushed to the cloud (when sync is on).
+let update (msg: Msg) (model: Model) : Model * Cmd<Msg> =
+    match msg with
+    | SyncDone _ | SyncFailed _ | SyncNow | SyncTokenInputChanged _ | SaveSyncToken | DisableSync ->
+        updateCore msg model
+    | _ ->
+        let model', cmd = updateCore msg model
+        if model'.data = model.data then model', cmd
+        else
+            let stamped = stampChanges model.data model'.data
+            { model' with data = stamped },
+            Cmd.batch [
+                cmd
+                Cmd.ofEffect (fun _ -> Storage.saveData stamped)
+                if model'.syncToken <> "" then syncCmd model'.syncToken stamped
+            ]
+
+/// Subscriptions: the arcade tick (while flying) and the sync poll (while
+/// sync is configured).
 let subscribe (model: Model) : Sub<Msg> =
-    match model.arcadeGame with
-    | Some game when game.phase = Arcade.Flying ->
-        [ [ "arcade-tick" ],
-          fun dispatch ->
-              let id = Browser.Dom.window.setInterval ((fun () -> dispatch ArcadeTick), 33)
-              { new System.IDisposable with
-                  member _.Dispose() = Browser.Dom.window.clearInterval id } ]
-    | _ -> []
+    [
+        match model.arcadeGame with
+        | Some game when game.phase = Arcade.Flying ->
+            [ "arcade-tick" ],
+            fun dispatch ->
+                let id = Browser.Dom.window.setInterval ((fun () -> dispatch ArcadeTick), 33)
+                { new System.IDisposable with
+                    member _.Dispose() = Browser.Dom.window.clearInterval id }
+        | _ -> ()
+        if model.syncToken <> "" then
+            [ "sync-poll" ],
+            fun dispatch ->
+                let id = Browser.Dom.window.setInterval ((fun () -> dispatch SyncNow), 60000)
+                { new System.IDisposable with
+                    member _.Dispose() = Browser.Dom.window.clearInterval id }
+    ]

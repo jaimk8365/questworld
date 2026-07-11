@@ -5,6 +5,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../src/Domain.fs" />
+    <Compile Include="../src/Merge.fs" />
     <Compile Include="../src/Progression.fs" />
     <Compile Include="../src/Auth.fs" />
     <Compile Include="../src/Catalog.fs" />

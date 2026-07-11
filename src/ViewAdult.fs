@@ -441,10 +441,51 @@ let private settingsTab (model: Model) dispatch =
                     ]
                 ]
             ]
+            Html.h3 [ prop.className "admin-title"; prop.text "☁️ Device sync" ]
+            Html.div [
+                prop.className "builder-form"
+                prop.children [
+                    if model.syncToken = "" then
+                        Html.p [ prop.className "empty-note"
+                                 prop.text "Paste the family sync key to share one world across all devices — quests, approvals, prizes and progress stay in step everywhere." ]
+                        field "Sync key" (Html.input [
+                            prop.className "input"
+                            prop.type' "password"
+                            prop.placeholder "github_pat_…"
+                            prop.value model.syncTokenInput
+                            prop.onChange (fun (v: string) -> dispatch (SyncTokenInputChanged v)) ])
+                        Html.button [
+                            prop.className "btn btn-primary"
+                            prop.text "Turn sync on"
+                            prop.onClick (fun _ -> dispatch SaveSyncToken)
+                        ]
+                    else
+                        Html.p [ prop.className "empty-note"; prop.text "Sync is ON — this device shares the family world." ]
+                        Html.div [
+                            prop.className "pw-buttons"
+                            prop.children [
+                                Html.button [
+                                    prop.className "btn btn-small"
+                                    prop.text "Sync now"
+                                    prop.onClick (fun _ -> dispatch SyncNow)
+                                ]
+                                Html.button [
+                                    prop.className "btn btn-small btn-reject"
+                                    prop.text "Turn off"
+                                    prop.onClick (fun _ -> dispatch DisableSync)
+                                ]
+                            ]
+                        ]
+                    match model.syncStatus with
+                    | Some s -> Html.div [ prop.className "builder-message"; prop.text s ]
+                    | None -> Html.none
+                ]
+            ]
             Html.h3 [ prop.className "admin-title"; prop.text "Danger zone" ]
             Html.button [
                 prop.className "btn btn-reject"
-                prop.text "Reset ALL data to defaults"
+                prop.text (if model.syncToken = "" then "Reset ALL data to defaults"
+                           else "Reset ALL data (spreads to every synced device!)")
                 prop.onClick (fun _ -> dispatch ResetAllData)
             ]
         ]

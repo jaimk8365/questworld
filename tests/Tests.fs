@@ -134,10 +134,19 @@ let main _ =
     let data5, _ = markDone data4 "u-levi" "q-kind" monday rng
     let rejCompletion = pendingApprovals data5 |> List.head |> fst
     let data6 = reject data5 rejCompletion
-    check "reject returns quest to Available"
-        (statusFor data6 "u-levi" (data6.quests |> List.find (fun q -> q.id = "q-kind")) monday = Available)
+    check "reject marks the claim Rejected (kept for sync)"
+        (statusFor data6 "u-levi" (data6.quests |> List.find (fun q -> q.id = "q-kind")) monday = Rejected)
     check "reject grants nothing"
         ((data6.users |> List.find (fun u -> u.id = "u-levi")).xp = levi4.xp)
+    check "rejected claim leaves the approval queue"
+        (not (pendingApprovals data6 |> List.exists (fun (c, _) -> c.questId = "q-kind")))
+    let data6b, reclaim = markDone data6 "u-levi" "q-kind" monday rng
+    check "child can claim again after a reject"
+        (match reclaim with Some o -> o.pendingApproval | None -> false)
+    check "re-claim replaces the rejected record (no duplicates)"
+        (data6b.completions
+         |> List.filter (fun c -> c.questId = "q-kind" && c.userId = "u-levi")
+         |> List.length = 1)
 
     section "Quest engine / guards"
     check "unknown quest id is a no-op" (let d, o = markDone data0 "u-thea" "q-nope" monday rng in o.IsNone && d = data0)
@@ -402,6 +411,78 @@ let main _ =
     // custom prize creation
     let custom = { id = "p-custom"; title = "Ice cream trip"; icon = "🍦"; cost = 80; active = true }
     check "parent can add a prize" (activePrizes (addPrize pData custom) |> List.exists (fun p -> p.id = "p-custom"))
+
+    section "Sync merge engine"
+    let stamp1, stamp2 = "2026-07-06 09:00:00", "2026-07-06 10:00:00"
+    let baseThea = seedUsers |> List.find (fun u -> u.id = "u-thea")
+    let theaOld = { baseThea with xp = 50; coins = 10; touchedAt = Some stamp1 }
+    let theaNew = { baseThea with xp = 80; coins = 3; touchedAt = Some stamp2 }
+    let withUsers us = { seedData with users = us }
+    let mu = (Merge.mergeData (withUsers [ theaOld ]) (withUsers [ theaNew ])).users |> List.head
+    check "user merge: newer touchedAt wins (even with fewer coins)" (mu.xp = 80 && mu.coins = 3)
+    let mu2 = (Merge.mergeData (withUsers [ theaNew ]) (withUsers [ theaOld ])).users |> List.head
+    check "user merge is symmetric" (mu2 = mu)
+    check "user merge: stamped beats unstamped"
+        (((Merge.mergeData (withUsers [ baseThea ]) (withUsers [ theaNew ])).users |> List.head).xp = 80)
+    check "user merge: xp breaks ties"
+        (((Merge.mergeData (withUsers [ { theaOld with touchedAt = None } ])
+                           (withUsers [ { theaNew with touchedAt = None } ])).users |> List.head).xp = 80)
+
+    let comp status at upd =
+        { questId = "q-bed"; userId = "u-thea"; periodKey = "2026-07-06"
+          status = status; completedAt = at; updatedAt = upd }
+    let withComps cs = { seedData with completions = cs }
+    check "completion merge: parent's approval beats the stale pending copy"
+        ((Merge.mergeData
+            (withComps [ comp Completed "2026-07-06 09:00" (Some stamp2) ])
+            (withComps [ comp PendingApproval "2026-07-06 09:00" (Some stamp1) ])).completions
+         |> List.head |> fun c -> c.status = Completed)
+    check "completion merge: a newer rejection is NOT resurrected by a stale pending"
+        ((Merge.mergeData
+            (withComps [ comp PendingApproval "2026-07-06 09:00" (Some stamp1) ])
+            (withComps [ comp Rejected "2026-07-06 09:00" (Some stamp2) ])).completions
+         |> List.head |> fun c -> c.status = Rejected)
+    check "completion merge: unions work (both devices' quests kept)"
+        ((Merge.mergeData
+            (withComps [ comp Completed "a" None ])
+            (withComps [ { comp Completed "a" None with questId = "q-teeth-am" } ])).completions
+         |> List.length = 2)
+
+    let withCatalog rev qs = { seedData with quests = qs; catalogRev = Some rev }
+    check "catalog merge: higher revision wins wholesale (deletions propagate)"
+        ((Merge.mergeData (withCatalog 5 []) (withCatalog 2 seedQuests)).quests |> List.isEmpty)
+    check "catalog merge: symmetric"
+        ((Merge.mergeData (withCatalog 2 seedQuests) (withCatalog 5 [])).quests |> List.isEmpty)
+
+    let red fulfilled cancelled =
+        { id = "r-1"; prizeId = "p-screen"; userId = "u-thea"
+          redeemedAt = "2026-07-06 09:00"; fulfilled = fulfilled; cancelled = cancelled }
+    let withReds rs = { seedData with redemptions = Some rs }
+    check "redemption merge: settled (cancelled) wins over pending"
+        ((Merge.mergeData (withReds [ red false None ]) (withReds [ red false (Some true) ])).redemptions
+         |> Option.defaultValue [] |> List.head |> fun r -> r.cancelled = Some true)
+    check "redemption merge: fulfilled wins over pending"
+        ((Merge.mergeData (withReds [ red true None ]) (withReds [ red false None ])).redemptions
+         |> Option.defaultValue [] |> List.head |> fun r -> r.fulfilled)
+
+    let sc score = { userId = "u-levi"; game = "flight"; score = score; weekKey = "2026-07-06" }
+    let withScores ss = { seedData with arcadeScores = Some ss }
+    check "score merge keeps the higher score"
+        ((Merge.mergeData (withScores [ sc 5 ]) (withScores [ sc 9 ])).arcadeScores
+         |> Option.defaultValue [] |> List.head |> fun s -> s.score = 9)
+    check "merge is idempotent" (Merge.mergeData seedData seedData = seedData)
+    // two devices with independent progress converge to the same world
+    let devA, _ = markDone seedData "u-thea" "q-bed" monday rng
+    let devB, _ = markDone seedData "u-levi" "q-teeth-am" monday rng
+    let stampAt t (d: AppData) =
+        { d with
+            users = d.users |> List.map (fun u -> if u.xp > 0 then { u with touchedAt = Some t } else u)
+            completions = d.completions |> List.map (fun c -> { c with updatedAt = Some t }) }
+    let ab = Merge.mergeData (stampAt stamp1 devA) (stampAt stamp2 devB)
+    check "two devices converge: both kids' progress survives"
+        ((ab.users |> List.find (fun u -> u.id = "u-thea")).xp > 0
+         && (ab.users |> List.find (fun u -> u.id = "u-levi")).xp > 0
+         && List.length ab.completions = 2)
 
     section "Save migration (v1 → arcade)"
     // A v1 save has no "arcade" field on users — it must still decode.

@@ -75,15 +75,15 @@ let seedUsers : User list =
     [ { id = "u-thea";  username = "thea";  displayName = "Thea"
         passwordHash = hashPassword "thea" "sparkle"
         role = Child; theme = DragonDream; xp = 0; coins = 0
-        inventory = emptyInventory; badges = []; arcade = None }
+        inventory = emptyInventory; badges = []; arcade = None; touchedAt = None }
       { id = "u-levi";  username = "levi";  displayName = "Levi"
         passwordHash = hashPassword "levi" "blocks"
         role = Child; theme = BlockCraft; xp = 0; coins = 0
-        inventory = emptyInventory; badges = []; arcade = None }
+        inventory = emptyInventory; badges = []; arcade = None; touchedAt = None }
       { id = "u-parent"; username = "parent"; displayName = "Quest Master"
         passwordHash = hashPassword "parent" "questmaster"
         role = Parent; theme = AdminClean; xp = 0; coins = 0
-        inventory = emptyInventory; badges = []; arcade = None } ]
+        inventory = emptyInventory; badges = []; arcade = None; touchedAt = None } ]
 
 // -------------------------------------------------------------- seed quests
 
@@ -134,4 +134,5 @@ let seedData : AppData =
       settings = { soundOn = true }
       arcadeScores = Some []
       prizes = Some seedPrizes
-      redemptions = Some [] }
+      redemptions = Some []
+      catalogRev = Some 0 }

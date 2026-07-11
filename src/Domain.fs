@@ -27,6 +27,9 @@ type QuestStatus =
     | Available
     | PendingApproval
     | Completed
+    // Kept as a record (not deleted) so cross-device sync can't resurrect
+    // a rejected claim. Children see Rejected quests as claimable again.
+    | Rejected
 
 type Reward =
     { xp: int
@@ -51,7 +54,9 @@ type QuestCompletion =
       userId: string
       periodKey: string
       status: QuestStatus
-      completedAt: string }
+      completedAt: string
+      // last-modified stamp for sync merge; option so old saves decode
+      updatedAt: string option }
 
 type CosmeticKind =
     | Skin
@@ -99,7 +104,9 @@ type User =
       inventory: Inventory
       badges: string list
       // option so v1 saves (which lack the field) still decode — None = never played
-      arcade: ArcadeProgress option }
+      arcade: ArcadeProgress option
+      // last-modified stamp for sync merge
+      touchedAt: string option }
 
 type LoginSession =
     { userId: string
@@ -122,7 +129,9 @@ type Redemption =
       prizeId: string
       userId: string
       redeemedAt: string
-      fulfilled: bool }
+      fulfilled: bool
+      // refunds mark instead of delete, so sync can't resurrect them
+      cancelled: bool option }
 
 /// Best score per (user, game, week) — feeds the family scoreboard.
 type ArcadeScore =
@@ -140,7 +149,10 @@ type AppData =
       // option so older saves (without these fields) still decode
       arcadeScores: ArcadeScore list option
       prizes: Prize list option
-      redemptions: Redemption list option }
+      redemptions: Redemption list option
+      // bumped on any quest/prize admin edit; sync takes the catalog
+      // (quests + prizes) wholesale from the higher revision
+      catalogRev: int option }
 
 /// Everything the UI needs to celebrate a completion.
 type CompletionOutcome =

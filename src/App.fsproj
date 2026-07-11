@@ -5,6 +5,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="Domain.fs" />
+    <Compile Include="Merge.fs" />
     <Compile Include="Progression.fs" />
     <Compile Include="Auth.fs" />
     <Compile Include="Catalog.fs" />
@@ -13,6 +14,7 @@
     <Compile Include="QuestEngine.fs" />
     <Compile Include="Codec.fs" />
     <Compile Include="Storage.fs" />
+    <Compile Include="Sync.fs" />
     <Compile Include="Sounds.fs" />
     <Compile Include="State.fs" />
     <Compile Include="ViewShared.fs" />
@@ -27,5 +29,6 @@
     <PackageReference Include="Feliz" Version="2.7.0" />
     <PackageReference Include="Thoth.Json" Version="10.2.0" />
     <PackageReference Include="Fable.Browser.Dom" Version="2.16.0" />
+    <PackageReference Include="Fable.Promise" Version="3.2.0" />
   </ItemGroup>
 </Project>

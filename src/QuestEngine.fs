@@ -138,18 +138,23 @@ let markDone (data: AppData) (userId: string) (questId: string) (today: DateTime
     | Some quest ->
         match statusFor data userId quest today with
         | PendingApproval | Completed -> data, None // already claimed this period
-        | Available ->
+        | Available | Rejected ->
             let key = periodKey quest today
             let completion status =
                 { questId = quest.id; userId = userId; periodKey = key
-                  status = status; completedAt = today.ToString("yyyy-MM-dd HH:mm") }
+                  status = status; completedAt = today.ToString("yyyy-MM-dd HH:mm")
+                  updatedAt = None }
+            // upsert: a Rejected record for this period gets replaced
+            let others =
+                data.completions
+                |> List.filter (fun c -> not (c.questId = quest.id && c.userId = userId && c.periodKey = key))
             if quest.requiresApproval then
-                let data' = { data with completions = completion PendingApproval :: data.completions }
+                let data' = { data with completions = completion PendingApproval :: others }
                 data', Some { quest = quest; reward = quest.reward; loot = None
                               levelBefore = 0; levelAfter = 0; newBadges = []
                               pendingApproval = true }
             else
-                let withCompletion = { data with completions = completion Completed :: data.completions }
+                let withCompletion = { data with completions = completion Completed :: others }
                 let data', outcome = grantRewards withCompletion userId quest rng
                 data', Some outcome
 
@@ -174,14 +179,17 @@ let approve (data: AppData) (completion: QuestCompletion) (rng: Random) : AppDat
             let data', outcome = grantRewards { data with completions = updated } completion.userId quest rng
             data', Some outcome
 
-/// Parent rejects — the quest becomes Available again for that period.
+/// Parent rejects — marked Rejected (not deleted, so sync can't resurrect
+/// the pending claim). The child can simply claim the quest again.
 let reject (data: AppData) (completion: QuestCompletion) : AppData =
     { data with
         completions =
             data.completions
-            |> List.filter (fun c ->
-                not (c.questId = completion.questId && c.userId = completion.userId
-                     && c.periodKey = completion.periodKey && c.status = PendingApproval)) }
+            |> List.map (fun c ->
+                if c.questId = completion.questId && c.userId = completion.userId
+                   && c.periodKey = completion.periodKey && c.status = PendingApproval
+                then { c with status = Rejected }
+                else c) }
 
 // -------------------------------------------------------------------- shop
 
@@ -347,7 +355,8 @@ let redeemPrize (data: AppData) (userId: string) (prizeId: string) (now: DateTim
               prizeId = prize.id
               userId = userId
               redeemedAt = now.ToString("yyyy-MM-dd HH:mm")
-              fulfilled = false }
+              fulfilled = false
+              cancelled = None }
         let data' =
             { replaceUser data { user with coins = user.coins - prize.cost } with
                 redemptions = Some (redemption :: redemptionsOf data) }
@@ -355,7 +364,7 @@ let redeemPrize (data: AppData) (userId: string) (prizeId: string) (now: DateTim
 
 let pendingRedemptions (data: AppData) : (Redemption * Prize * User) list =
     redemptionsOf data
-    |> List.filter (fun r -> not r.fulfilled)
+    |> List.filter (fun r -> not r.fulfilled && not (r.cancelled |> Option.defaultValue false))
     |> List.choose (fun r ->
         match prizesOf data |> List.tryFind (fun p -> p.id = r.prizeId),
               data.users |> List.tryFind (fun u -> u.id = r.userId) with
@@ -369,8 +378,12 @@ let fulfillRedemption (data: AppData) (redemptionId: string) : AppData =
                   |> List.map (fun r -> if r.id = redemptionId then { r with fulfilled = true } else r)) }
 
 /// Parent cancels a pending redemption — coins go back to the child.
+/// Marked cancelled (not deleted) so sync can't resurrect it.
 let refundRedemption (data: AppData) (redemptionId: string) : AppData =
-    match redemptionsOf data |> List.tryFind (fun r -> r.id = redemptionId && not r.fulfilled) with
+    match redemptionsOf data
+          |> List.tryFind (fun r ->
+              r.id = redemptionId && not r.fulfilled
+              && not (r.cancelled |> Option.defaultValue false)) with
     | None -> data
     | Some r ->
         let refund =
@@ -382,17 +395,20 @@ let refundRedemption (data: AppData) (redemptionId: string) : AppData =
             match data.users |> List.tryFind (fun u -> u.id = r.userId) with
             | Some user -> replaceUser data { user with coins = user.coins + refund }
             | None -> data
-        { data' with redemptions = Some (redemptionsOf data |> List.filter (fun x -> x.id <> redemptionId)) }
+        { data' with
+            redemptions =
+                Some (redemptionsOf data'
+                      |> List.map (fun x -> if x.id = redemptionId then { x with cancelled = Some true } else x)) }
 
 /// Deleting a prize refunds any pending redemptions of it first.
 let deletePrize (data: AppData) (prizeId: string) : AppData =
     let data' =
         redemptionsOf data
-        |> List.filter (fun r -> r.prizeId = prizeId && not r.fulfilled)
+        |> List.filter (fun r ->
+            r.prizeId = prizeId && not r.fulfilled
+            && not (r.cancelled |> Option.defaultValue false))
         |> List.fold (fun d r -> refundRedemption d r.id) data
-    { data' with
-        prizes = Some (prizesOf data' |> List.filter (fun p -> p.id <> prizeId))
-        redemptions = Some (redemptionsOf data' |> List.filter (fun r -> r.prizeId <> prizeId)) }
+    { data' with prizes = Some (prizesOf data' |> List.filter (fun p -> p.id <> prizeId)) }
 
 // ----------------------------------------------------------- quest admin
 

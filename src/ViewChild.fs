@@ -33,7 +33,7 @@ let private questCard (theme: ProfileTheme) (quest: Quest, status: QuestStatus) 
     Html.div [
         prop.className (
             match status with
-            | Available -> "quest-card"
+            | Available | Rejected -> "quest-card"
             | PendingApproval -> "quest-card q-pending"
             | Completed -> "quest-card q-done")
         prop.children [
@@ -48,7 +48,7 @@ let private questCard (theme: ProfileTheme) (quest: Quest, status: QuestStatus) 
                 ]
             ]
             match status with
-            | Available ->
+            | Available | Rejected ->
                 Html.button [
                     prop.className "btn done-btn"
                     prop.text "I did it!"
