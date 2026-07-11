@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="theme-color" content="#6c4bb6" />
+  <link rel="manifest" href="/questworld/manifest.webmanifest" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/questworld/apple-touch-icon.png" />
+  <link rel="icon" type="image/png" sizes="512x512" href="/questworld/icon-512.png" />
+  <title>QuestWorld</title>
+  <script type="module" crossorigin src="/questworld/assets/index-Bx3WB_Na.js"></script>
+  <link rel="stylesheet" crossorigin href="/questworld/assets/index-BSCvnplS.css">
+</head>
+<body>
+  <div id="root"></div>
+  <script>
+    // Offline support: only on the hosted (https) site — local dev and the
+    // home-network address skip this so development stays cache-free.
+    if ("serviceWorker" in navigator && location.protocol === "https:") {
+      window.addEventListener("load", function () {
+        navigator.serviceWorker.register("./sw.js").catch(function () {});
+      });
+    }
+  </script>
+</body>
+</html>
