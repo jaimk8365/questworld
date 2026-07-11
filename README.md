@@ -122,10 +122,24 @@ what lets the .NET test suite exercise the real game logic.
   over" with Given/Refund buttons. Deleting a prize auto-refunds pending
   redemptions.
 
+## Cross-device sync
+
+One shared family world across all devices. The data lives as `data.json`
+in the private repo `jaimk8365/questworld-sync`; each device pulls, merges
+(`src/Merge.fs` — per-entity last-writer-wins with unions, fully unit-tested)
+and pushes back, with git-sha compare-and-swap against write races. Sync runs
+on app open, every 60 s, and after every action; offline changes merge when
+the connection returns.
+
+Setup per device: parent Settings → Device sync → paste the family sync key
+(a GitHub fine-grained personal access token limited to the questworld-sync
+repo with Contents read/write). Sound stays a per-device preference; login
+sessions never sync. Note: fine-grained tokens expire (max 1 year) — when
+sync starts erroring with 401, mint a new key and paste it again on each
+device.
+
 ## Future expansions (hooks already in place)
 
-- **Cloud sync**: replace `Storage.fs` with an API-backed implementation;
-  `Codec.fs` already produces the wire format.
 - **New profiles/themes**: add a `ProfileTheme` case, an avatar ladder in
   `Progression.fs`, cosmetics in `Catalog.fs`, and a CSS theme block.
 - **Streak bonuses**: `QuestCompletion.periodKey` gives you the full history —
