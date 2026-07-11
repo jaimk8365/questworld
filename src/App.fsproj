@@ -15,6 +15,7 @@
     <Compile Include="Codec.fs" />
     <Compile Include="Storage.fs" />
     <Compile Include="Sync.fs" />
+    <Compile Include="Notifications.fs" />
     <Compile Include="Sounds.fs" />
     <Compile Include="State.fs" />
     <Compile Include="ViewShared.fs" />

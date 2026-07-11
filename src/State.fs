@@ -58,6 +58,7 @@ type Model =
       // login screen
       selectedProfile: string option
       passwordInput: string
+      staySignedIn: bool
       loginError: string option
       // navigation
       childTab: ChildTab
@@ -83,7 +84,11 @@ type Model =
       // cross-device sync
       syncToken: string          // "" = sync off
       syncTokenInput: string
-      syncStatus: string option }
+      syncStatus: string option
+      // push notifications (per-device)
+      notifyTarget: string       // profile this device should get alerts for
+      notifyStatus: string option
+      notifySubscribed: string option }
 
 let currentUser (model: Model) : User option =
     model.currentUserId
@@ -136,6 +141,10 @@ type Msg =
     | SyncNow
     | SyncDone of AppData
     | SyncFailed of exn
+    | StaySignedInToggled of bool
+    | NotifyTargetChanged of string
+    | EnableNotifications
+    | NotifyResult of Result<string, string>
 
 // -------------------------------------------------------------------- init
 
@@ -160,6 +169,7 @@ let init () : Model * Cmd<Msg> =
       currentUserId = userId
       selectedProfile = None
       passwordInput = ""
+      staySignedIn = true
       loginError = None
       childTab = QuestsTab
       adminTab = OverviewTab
@@ -178,7 +188,10 @@ let init () : Model * Cmd<Msg> =
       prizeMessage = None
       syncToken = syncToken
       syncTokenInput = ""
-      syncStatus = (if syncToken = "" then None else Some "Syncing…") },
+      syncStatus = (if syncToken = "" then None else Some "Syncing…")
+      notifyTarget = "u-thea"
+      notifyStatus = None
+      notifySubscribed = Notifications.subscribedFor () },
     (if syncToken = "" then Cmd.none else syncCmd syncToken data)
 
 // ------------------------------------------------------------------ update
@@ -215,6 +228,7 @@ let private updateCore (msg: Msg) (model: Model) : Model * Cmd<Msg> =
             | Ok user ->
                 playFor model Sounds.questComplete
                 let session = { userId = user.id; loggedInAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm") }
+                let stay = model.staySignedIn
                 { model with
                     currentUserId = Some user.id
                     selectedProfile = None
@@ -222,7 +236,8 @@ let private updateCore (msg: Msg) (model: Model) : Model * Cmd<Msg> =
                     loginError = None
                     childTab = QuestsTab
                     adminTab = OverviewTab },
-                Cmd.ofEffect (fun _ -> Storage.saveSession (Some session))
+                // unticked "keep me signed in" → session lives in memory only
+                Cmd.ofEffect (fun _ -> Storage.saveSession (if stay then Some session else None))
 
     | Logout ->
         { model with currentUserId = None; selectedProfile = None; celebration = None
@@ -526,6 +541,33 @@ let private updateCore (msg: Msg) (model: Model) : Model * Cmd<Msg> =
     | SyncFailed e ->
         let msg = if isNull e.Message then "connection problem" else e.Message
         { model with syncStatus = Some (sprintf "⚠️ Sync problem: %s" msg) }, Cmd.none
+
+    | StaySignedInToggled v ->
+        { model with staySignedIn = v }, Cmd.none
+
+    // ------------------------------------------------------ notifications
+    | NotifyTargetChanged id ->
+        { model with notifyTarget = id; notifyStatus = None }, Cmd.none
+
+    | EnableNotifications ->
+        if model.syncToken = "" then
+            { model with notifyStatus = Some "Turn sync on first — alerts travel through the family sync." }, Cmd.none
+        else
+            { model with notifyStatus = Some "Asking this device for permission…" },
+            Cmd.OfPromise.either (Notifications.enable model.syncToken) model.notifyTarget NotifyResult (fun e -> NotifyResult (Error (string e.Message)))
+
+    | NotifyResult (Ok userId) ->
+        let name =
+            model.data.users
+            |> List.tryFind (fun u -> u.id = userId)
+            |> Option.map (fun u -> u.displayName)
+            |> Option.defaultValue userId
+        { model with
+            notifySubscribed = Some userId
+            notifyStatus = Some (sprintf "✓ This device now gets %s's alerts 🔔" name) }, Cmd.none
+
+    | NotifyResult (Error e) ->
+        { model with notifyStatus = Some (sprintf "⚠️ %s" e) }, Cmd.none
 
 // ---------------------------------------------------- stamping + sync push
 

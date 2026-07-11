@@ -48,6 +48,17 @@ let private passwordPanel (model: Model) (user: User) dispatch =
             match model.loginError with
             | Some err -> Html.div [ prop.className "login-error"; prop.text err ]
             | None -> Html.none
+            Html.label [
+                prop.className "stay-signed-in"
+                prop.children [
+                    Html.input [
+                        prop.type' "checkbox"
+                        prop.isChecked model.staySignedIn
+                        prop.onChange (fun (v: bool) -> dispatch (StaySignedInToggled v))
+                    ]
+                    Html.span [ prop.text " Keep me signed in on this device" ]
+                ]
+            ]
             Html.div [
                 prop.className "pw-buttons"
                 prop.children [

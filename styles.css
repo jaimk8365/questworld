@@ -144,6 +144,11 @@ body {
 }
 .pw-buttons { display: flex; gap: 12px; justify-content: center; margin-top: 18px; }
 .login-error { color: #c0392b; margin-top: 12px; font-weight: 600; animation: shake 0.4s; }
+.stay-signed-in {
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  margin-top: 14px; font-size: 13.5px; font-weight: 600; color: var(--ink-soft);
+  cursor: pointer;
+}
 
 /* ------------------------------------------------- child layout */
 

@@ -21,6 +21,29 @@ self.addEventListener("activate", (event) => {
   );
 });
 
+// ---- push notifications ----
+self.addEventListener("push", (event) => {
+  let payload = {};
+  try { payload = event.data ? event.data.json() : {}; } catch { /* ignore */ }
+  event.waitUntil(
+    self.registration.showNotification(payload.title || "QuestWorld", {
+      body: payload.body || "",
+      icon: "./icon-512.png",
+      badge: "./apple-touch-icon.png",
+      data: { url: "./" },
+    })
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  event.waitUntil(
+    clients.matchAll({ type: "window", includeUncontrolled: true }).then((wins) =>
+      wins.length ? wins[0].focus() : clients.openWindow("./")
+    )
+  );
+});
+
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   if (req.method !== "GET") return;

@@ -481,6 +481,37 @@ let private settingsTab (model: Model) dispatch =
                     | None -> Html.none
                 ]
             ]
+            Html.h3 [ prop.className "admin-title"; prop.text "🔔 Alerts on this device" ]
+            Html.div [
+                prop.className "builder-form"
+                prop.children [
+                    Html.p [ prop.className "empty-note"
+                             prop.text "Pick whose alerts THIS device should receive (Thea's iPad → Thea, your phone → Quest Master). Works from the Home-Screen app on iOS 16.4+; needs sync on." ]
+                    field "Alerts for" (Html.select [
+                        prop.className "input"
+                        prop.value model.notifyTarget
+                        prop.onChange (fun (v: string) -> dispatch (NotifyTargetChanged v))
+                        prop.children [ for u in model.data.users ->
+                                          Html.option [ prop.value u.id; prop.text u.displayName ] ] ])
+                    Html.button [
+                        prop.className "btn btn-primary"
+                        prop.text "Enable alerts on this device"
+                        prop.onClick (fun _ -> dispatch EnableNotifications)
+                    ]
+                    match model.notifySubscribed with
+                    | Some id when model.notifyStatus = None ->
+                        let name =
+                            model.data.users
+                            |> List.tryFind (fun u -> u.id = id)
+                            |> Option.map (fun u -> u.displayName)
+                            |> Option.defaultValue id
+                        Html.div [ prop.className "builder-message"; prop.text (sprintf "This device gets %s's alerts 🔔" name) ]
+                    | _ -> Html.none
+                    match model.notifyStatus with
+                    | Some s -> Html.div [ prop.className "builder-message"; prop.text s ]
+                    | None -> Html.none
+                ]
+            ]
             Html.h3 [ prop.className "admin-title"; prop.text "Danger zone" ]
             Html.button [
                 prop.className "btn btn-reject"
