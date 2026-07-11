@@ -7,7 +7,7 @@ self.addEventListener("install", (event) => {
   event.waitUntil(
     caches
       .open(CACHE)
-      .then((cache) => cache.addAll(["./", "./manifest.webmanifest", "./icon.svg"]))
+      .then((cache) => cache.addAll(["./", "./manifest.webmanifest", "./icon.svg", "./apple-touch-icon.png", "./icon-512.png"]))
       .then(() => self.skipWaiting())
   );
 });
