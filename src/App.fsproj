@@ -12,6 +12,8 @@
     <Compile Include="Arcade.fs" />
     <Compile Include="Memory.fs" />
     <Compile Include="QuestEngine.fs" />
+    <Compile Include="Story.fs" />
+    <Compile Include="Adventure.fs" />
     <Compile Include="Codec.fs" />
     <Compile Include="Storage.fs" />
     <Compile Include="Sync.fs" />
