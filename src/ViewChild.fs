@@ -7,6 +7,8 @@ open QuestWorld.Domain
 open QuestWorld.Progression
 open QuestWorld.QuestEngine
 open QuestWorld.Catalog
+open QuestWorld.Adventure
+open QuestWorld.Story
 open QuestWorld.State
 open QuestWorld.ViewShared
 
@@ -63,6 +65,8 @@ let private questCard (theme: ProfileTheme) (quest: Quest, status: QuestStatus) 
 
 let private questsTab (model: Model) (user: User) dispatch =
     let quests = questsForUser model.data user.id DateTime.Now
+    let featured = featuredMissions model.data user.id DateTime.Now
+    let adventure = adventureProgress model.data user.id DateTime.Now
     let doneCount = quests |> List.filter (fun (_, s) -> s = Completed) |> List.length
     let total = List.length quests
     let sections =
@@ -74,6 +78,36 @@ let private questsTab (model: Model) (user: User) dispatch =
     Html.div [
         prop.className "quests-tab"
         prop.children [
+            match welcomeBack model.data user.id DateTime.Now with
+            | Some welcome ->
+                Html.div [
+                    prop.className "welcome-back"
+                    prop.children [
+                        Html.h2 [ prop.text welcome.title ]
+                        Html.p [ prop.text welcome.message ]
+                    ]
+                ]
+            | None -> Html.none
+            Html.section [
+                prop.className "adventure-card"
+                prop.children [
+                    Html.div [
+                        prop.className "adventure-heading"
+                        prop.children [
+                            Html.div [
+                                Html.h2 [ prop.text "Today's Adventure" ]
+                                Html.p [ prop.text "Three missions, one little adventure. Every other quest is still below." ]
+                            ]
+                            Html.span [ prop.className "adventure-count"; prop.text (sprintf "%d/%d" adventure.doneCount adventure.totalCount) ]
+                        ]
+                    ]
+                    Html.div [ prop.className "adventure-meter"; prop.children [
+                        Html.div [ prop.className "adventure-meter-fill"; prop.style [ style.width (length.percent (if adventure.totalCount = 0 then 0.0 else float adventure.doneCount / float adventure.totalCount * 100.0)) ] ]
+                    ] ]
+                    for mission in featured do questCard user.theme mission dispatch
+                    if adventure.complete then Html.div [ prop.className "adventure-complete"; prop.text "Adventure complete! Your world is growing ✨" ]
+                ]
+            ]
             Html.div [
                 prop.className "day-progress"
                 prop.children [
@@ -89,6 +123,7 @@ let private questsTab (model: Model) (user: User) dispatch =
                     ]
                 ]
             ]
+            Html.h2 [ prop.className "all-quests-title"; prop.text "All Quests" ]
             if List.isEmpty sections then
                 Html.p [ prop.className "empty-note"; prop.text "No quests yet — ask the Quest Master!" ]
             for (qtype, qs) in sections do
@@ -100,6 +135,46 @@ let private questsTab (model: Model) (user: User) dispatch =
                     ]
                 ]
             Html.p [ prop.className "encourage"; prop.text (encouragement user.theme) ]
+        ]
+    ]
+
+let private mapTab (model: Model) (user: User) =
+    let chapter = chapterFor user.theme
+    let progress = chapterProgress model.data user.id chapter
+    let places =
+        match user.theme with
+        | DragonDream -> [ "Dragon Nest", "🐉", true; "Moon Forest", "🌙", progress.completedSteps >= 1; "Crystal Garden", "🌸", progress.completedSteps >= 2; "Star Castle", "🏰", progress.complete ]
+        | _ -> [ "Base Camp", "🏡", true; "The Mines", "⛏️", progress.completedSteps >= 1; "Village", "🏘️", progress.completedSteps >= 2; "Hidden Fortress", "🏰", progress.complete ]
+    Html.div [
+        prop.className "world-map"
+        prop.children [
+            Html.div [ prop.className "map-intro"; prop.children [
+                Html.h2 [ prop.text "QuestWorld Map" ]
+                Html.p [ prop.text "Complete story missions to reveal more of your world." ]
+            ] ]
+            Html.div [ prop.className "map-path"; prop.children [
+                for (name, icon, unlocked) in places do
+                    Html.div [
+                        prop.className (if unlocked then "map-place unlocked" else "map-place locked")
+                        prop.children [
+                            Html.div [ prop.className "map-place-icon"; prop.text (if unlocked then icon else "🔒") ]
+                            Html.div [ prop.className "map-place-name"; prop.text name ]
+                            Html.div [ prop.className "map-place-state"; prop.text (if unlocked then "Discovered" else "Story locked") ]
+                        ]
+                    ]
+            ] ]
+            Html.section [ prop.className "story-card"; prop.children [
+                Html.div [ prop.className "story-kicker"; prop.text "CHAPTER 1" ]
+                Html.h2 [ prop.text chapter.title ]
+                Html.p [ prop.text chapter.intro ]
+                Html.div [ prop.className "story-progress"; prop.text (sprintf "%d of %d missions complete" progress.completedSteps progress.totalSteps) ]
+                for i, step in chapter.steps |> List.indexed do
+                    Html.div [ prop.className (if i < progress.completedSteps then "story-step done" elif i = progress.completedSteps then "story-step current" else "story-step locked"); prop.children [
+                        Html.span [ prop.className "story-step-icon"; prop.text (if i < progress.completedSteps then "✅" elif i = progress.completedSteps then step.icon else "🔒") ]
+                        Html.div [ Html.strong step.title; Html.p step.description ]
+                    ] ]
+                if progress.complete then Html.div [ prop.className "chapter-reward"; prop.text ("🏆 " + chapter.rewardText) ]
+            ] ]
         ]
     ]
 
@@ -220,8 +295,8 @@ let private badgesTab (model: Model) (user: User) =
 let private tabBar (theme: ProfileTheme) (active: ChildTab) dispatch =
     let tabs =
         match theme with
-        | DragonDream -> [ QuestsTab, "🪄", "Quests"; ShopTab, "🛍️", "Shop"; ArcadeTab, "🎮", "Arcade"; BadgesTab, "🏅", "Badges" ]
-        | _ -> [ QuestsTab, "⛏️", "Quests"; ShopTab, "📦", "Shop"; ArcadeTab, "🎮", "Arcade"; BadgesTab, "🏅", "Badges" ]
+        | DragonDream -> [ QuestsTab, "🪄", "Today"; MapTab, "🗺️", "World"; ShopTab, "🛍️", "Shop"; ArcadeTab, "🎮", "Arcade"; BadgesTab, "🏅", "Badges" ]
+        | _ -> [ QuestsTab, "⛏️", "Today"; MapTab, "🗺️", "World"; ShopTab, "📦", "Shop"; ArcadeTab, "🎮", "Arcade"; BadgesTab, "🏅", "Badges" ]
     Html.div [
         prop.className "tabbar"
         prop.children [
@@ -278,6 +353,7 @@ let view (model: Model) (user: User) dispatch =
                 prop.children [
                     match model.childTab with
                     | QuestsTab -> questsTab model user dispatch
+                    | MapTab -> mapTab model user
                     | ShopTab -> shopTab model user dispatch
                     | ArcadeTab -> ViewArcade.view model user dispatch
                     | BadgesTab -> badgesTab model user
