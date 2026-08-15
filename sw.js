@@ -1,7 +1,7 @@
 /* QuestWorld service worker — offline support.
-   20260711141702 is replaced with a timestamp by deploy.sh so every deploy
+   20260815194120 is replaced with a timestamp by deploy.sh so every deploy
    gets a fresh cache and old versions are cleaned up. */
-const CACHE = "questworld-20260711141702";
+const CACHE = "questworld-20260815194120";
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
