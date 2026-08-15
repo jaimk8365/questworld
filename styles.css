@@ -249,6 +249,38 @@ body {
 .encourage { text-align: center; color: var(--ink-soft); margin: 26px 0 10px; font-weight: 600; }
 .empty-note { color: var(--ink-soft); padding: 12px 0; }
 
+/* --------------------------------------- today's adventure + world map */
+
+.welcome-back, .adventure-card, .map-intro, .story-card {
+  background: var(--card); border: 2px solid var(--card-border); border-radius: var(--radius);
+  padding: 16px; margin-bottom: 16px; box-shadow: var(--shadow);
+}
+.welcome-back { background: var(--accent-soft); }
+.welcome-back h2, .adventure-heading h2, .map-intro h2, .story-card h2 { font-size: 21px; margin-bottom: 5px; }
+.welcome-back p, .adventure-heading p, .map-intro p, .story-card > p { color: var(--ink-soft); line-height: 1.4; }
+.adventure-card { border-color: var(--accent); }
+.adventure-heading { display: flex; gap: 12px; align-items: flex-start; justify-content: space-between; margin-bottom: 10px; }
+.adventure-count { background: var(--accent); color: white; border-radius: 999px; padding: 6px 10px; font-weight: 900; }
+.theme-block .adventure-count { border-radius: 0; }
+.adventure-meter { height: 12px; background: rgba(0,0,0,.08); overflow: hidden; border-radius: 999px; margin-bottom: 14px; }
+.adventure-meter-fill { height: 100%; background: linear-gradient(90deg,var(--accent),var(--gold)); transition: width .5s ease; }
+.adventure-card .quest-card { box-shadow: none; background: rgba(255,255,255,.58); }
+.adventure-complete, .chapter-reward { text-align: center; font-weight: 900; color: var(--accent); padding: 8px; }
+.all-quests-title { margin-top: 24px; font-size: 22px; }
+.map-path { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; margin: 18px 0; }
+.map-place { text-align: center; padding: 16px 8px; border: 2px solid var(--card-border); border-radius: var(--radius); background: var(--card); box-shadow: var(--shadow); }
+.map-place.locked { opacity: .55; filter: grayscale(.6); }
+.map-place-icon { font-size: 42px; margin-bottom: 5px; }
+.map-place-name { font-weight: 900; }
+.map-place-state { font-size: 11px; color: var(--ink-soft); margin-top: 3px; }
+.story-kicker { color: var(--accent); font-size: 11px; letter-spacing: .12em; font-weight: 900; }
+.story-progress { margin: 12px 0; font-weight: 800; color: var(--accent); }
+.story-step { display: flex; gap: 11px; align-items: center; padding: 11px; margin-top: 8px; border: 2px solid var(--card-border); border-radius: var(--radius); }
+.story-step.current { border-color: var(--accent); background: var(--accent-soft); }
+.story-step.locked { opacity: .55; }
+.story-step-icon { font-size: 25px; }
+.story-step p { font-size: 12px; color: var(--ink-soft); margin-top: 2px; }
+
 /* -------------------------------------------------------- tabs */
 
 .tabbar {
