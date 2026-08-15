@@ -12,6 +12,7 @@ open QuestWorld.Catalog
 
 type ChildTab =
     | QuestsTab
+    | MapTab
     | ShopTab
     | ArcadeTab
     | BadgesTab
