@@ -6,6 +6,8 @@ open QuestWorld.Domain
 open QuestWorld.Progression
 open QuestWorld.Auth
 open QuestWorld.Catalog
+open QuestWorld.Adventure
+open QuestWorld.Story
 open QuestWorld.QuestEngine
 open QuestWorld.Codec
 
@@ -73,6 +75,33 @@ let main _ =
         | Error _ -> false
     check "password change takes effect and old password dies" pwChanged
     check "too-short password rejected" (match changePassword seedData "u-levi" "ab" with Error _ -> true | _ -> false)
+
+    section "Today's Adventure"
+    let featured = featuredMissions seedData "u-thea" monday
+    check "featured adventure contains exactly three missions" (List.length featured = 3)
+    check "featured adventure is deterministic for a child and day"
+        (featured = featuredMissions seedData "u-thea" monday)
+    check "featured adventure contains no duplicate quests"
+        (featured |> List.map (fun (q, _) -> q.id) |> Set.ofList |> Set.count = 3)
+    let oneDone, _ = markDone seedData "u-thea" (featured |> List.head |> fst |> fun q -> q.id) monday (Random 19)
+    check "adventure progress counts completed featured missions"
+        ((adventureProgress oneDone "u-thea" monday).doneCount = 1)
+
+    section "Story chapters"
+    let theaChapter = chapterFor DragonDream
+    let leviChapter = chapterFor BlockCraft
+    check "Thea has a DragonDream chapter" (theaChapter.id = "dragondream-moon-egg" && List.length theaChapter.steps = 3)
+    check "Levi has a BlockCraft chapter" (leviChapter.id = "blockcraft-hidden-fortress" && List.length leviChapter.steps = 3)
+    check "story begins on the first step" ((chapterProgress seedData "u-thea" theaChapter).completedSteps = 0)
+    let storyDone, _ = markDone seedData "u-thea" theaChapter.steps.Head.questId monday (Random 23)
+    check "an approved story mission advances its chapter"
+        ((chapterProgress storyDone "u-thea" theaChapter).completedSteps = 1)
+    check "welcome back appears after two quiet days"
+        (welcomeBack storyDone "u-thea" (monday.AddDays 2.0) |> Option.isSome)
+    check "a brand-new player is not told they have been away"
+        (welcomeBack seedData "u-thea" monday |> Option.isNone)
+    check "welcome back stays hidden after recent activity"
+        (welcomeBack storyDone "u-thea" tuesday |> Option.isNone)
 
     // ------------------------------------------------------ quest engine
     section "Quest engine / completion"
