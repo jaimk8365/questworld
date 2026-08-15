@@ -12,6 +12,8 @@
     <Compile Include="../src/Arcade.fs" />
     <Compile Include="../src/Memory.fs" />
     <Compile Include="../src/QuestEngine.fs" />
+    <Compile Include="../src/Story.fs" />
+    <Compile Include="../src/Adventure.fs" />
     <Compile Include="../src/Codec.fs" />
     <Compile Include="Tests.fs" />
   </ItemGroup>
