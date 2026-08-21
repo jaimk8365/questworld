@@ -4,9 +4,15 @@
 //
 // Dry run (no sends, prints events):  node notify.mjs --dry old.json new.json
 import { execSync } from "node:child_process";
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, writeFileSync } from "node:fs";
 
 const dry = process.argv[2] === "--dry";
+const healthFlag = process.argv.indexOf("--health");
+const healthFile = healthFlag >= 0 ? process.argv[healthFlag + 1] : "notification-health.json";
+const writeHealth = (status, events = 0, sent = 0, failed = 0) =>
+  writeFileSync(healthFile, JSON.stringify({
+    checkedAt: new Date().toISOString(), status, events, sent, failed,
+  }, null, 2) + "\n");
 
 const load = (txt) => { try { return JSON.parse(txt); } catch { return null; } };
 
@@ -20,8 +26,8 @@ if (dry) {
   newD = load(readFileSync("data.json", "utf8"));
 }
 
-if (!newD) { console.log("no parseable new data — nothing to do"); process.exit(0); }
-if (!oldD) { console.log("no previous data (first sync) — skipping to avoid spam"); process.exit(0); }
+if (!newD) { console.log("no parseable new data — nothing to do"); writeHealth("invalid-data"); process.exit(0); }
+if (!oldD) { console.log("no previous data (first sync) — skipping to avoid spam"); writeHealth("first-sync"); process.exit(0); }
 
 const PARENT = "u-parent";
 const nameOf = (id) => newD.users?.find((u) => u.id === id)?.displayName ?? "Someone";
@@ -97,12 +103,13 @@ for (const q of newD.quests ?? []) {
 
 console.log(`events: ${events.length}`);
 for (const e of events) console.log(`  → [${e.to}] ${e.title} | ${e.body}`);
-if (dry || events.length === 0) process.exit(0);
+if (dry) { writeHealth("dry-run", events.length); process.exit(0); }
+if (events.length === 0) { writeHealth("ok", 0); process.exit(0); }
 
 // -------------------------------------------------------------- send
 const subsFile = "subs.json";
 const subs = existsSync(subsFile) ? load(readFileSync(subsFile, "utf8")) ?? [] : [];
-if (subs.length === 0) { console.log("no subscribed devices"); process.exit(0); }
+if (subs.length === 0) { console.log("no subscribed devices"); writeHealth("no-devices", events.length); process.exit(0); }
 
 const { default: webpush } = await import("web-push");
 webpush.setVapidDetails(
@@ -128,3 +135,4 @@ for (const event of events) {
   }
 }
 console.log(`sent: ${sent}, failed: ${failed}`);
+writeHealth(failed > 0 ? "send-errors" : "ok", events.length, sent, failed);
