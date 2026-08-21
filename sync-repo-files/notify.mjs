@@ -7,12 +7,23 @@ import { execSync } from "node:child_process";
 import { readFileSync, existsSync, writeFileSync } from "node:fs";
 
 const dry = process.argv[2] === "--dry";
+const checkConfigOnly = process.argv[2] === "--check-config";
 const healthFlag = process.argv.indexOf("--health");
 const healthFile = healthFlag >= 0 ? process.argv[healthFlag + 1] : "notification-health.json";
 const writeHealth = (status, events = 0, sent = 0, failed = 0) =>
   writeFileSync(healthFile, JSON.stringify({
     checkedAt: new Date().toISOString(), status, events, sent, failed,
   }, null, 2) + "\n");
+
+const configValid = () =>
+  (process.env.VAPID_PUBLIC_KEY ?? "").length > 40 &&
+  (process.env.VAPID_PRIVATE_KEY ?? "").length > 20;
+
+if (checkConfigOnly) {
+  const ok = configValid();
+  writeHealth(ok ? "config-ok" : "missing-secrets");
+  process.exit(ok ? 0 : 1);
+}
 
 const load = (txt) => { try { return JSON.parse(txt); } catch { return null; } };
 
@@ -26,6 +37,7 @@ if (dry) {
   newD = load(readFileSync("data.json", "utf8"));
 }
 
+if (!dry && !configValid()) { console.log("notification keys are missing or invalid"); writeHealth("missing-secrets"); process.exit(1); }
 if (!newD) { console.log("no parseable new data — nothing to do"); writeHealth("invalid-data"); process.exit(0); }
 if (!oldD) { console.log("no previous data (first sync) — skipping to avoid spam"); writeHealth("first-sync"); process.exit(0); }
 
